@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=NIRUNOTE
+GenericName=Text Editor
+Comment=Minimal, suckless writing for Linux
+Exec=nirunote %F
+TryExec=nirunote
+Icon=nirunote
+Terminal=false
+Categories=Utility;TextEditor;
+MimeType=text/plain;text/markdown;
+StartupWMClass=nirunote
+Keywords=notes;markdown;text;editor;writing;
+StartupNotify=false

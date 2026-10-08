@@ -1,0 +1,14 @@
+name: Python checks
+on: [push, pull_request]
+jobs:
+  syntax-and-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PySide6
+      - run: python -m compileall -q nirunote gui-smoke-test.py
+      - run: python nirunote/app.py --core-self-test
+      - run: QT_QPA_PLATFORM=offscreen python gui-smoke-test.py
