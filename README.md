@@ -48,18 +48,6 @@ Documents remain local; NIRUNOTE does not upload document content. Hunspell uses
 
 Run `./uninstall.sh` and review the script first. Back up your documents and recovery state independently.
 
-## GitHub
+## Author and license
 
-`./scripts/publish-github.sh` prepares and pushes the source to the existing `nirucon/nirunote` repository after explicit confirmation. It does not create a GitHub release automatically.
-
-## License
-
-MIT. Copyright (c) 2026 Ing Leif Nicklas Rudolfsson.
-
-## Publishing a new version
-
-From an extracted release directory, run `./scripts/publish-github.sh`. It tests the release and stages its files in a temporary fresh clone of the existing GitHub `main` branch. It does **not** initialize a new unrelated Git history or force-push. Review the staged diff and type `yes` to publish. GitHub credentials and a configured Git author identity are required. This updates the source branch, not a GitHub Releases asset or tag.
-
-## Publishing a release
-
-Run `./scripts/publish-github.sh` after verifying the application locally. Wait for GitHub Actions to pass for the new main commit, then run `./scripts/create-github-release.sh` to create the tagged release and upload the ZIP from that verified commit. Both scripts require explicit confirmation and never force-push.
+Ing Leif Nicklas Rudolfsson. MIT License; see [LICENSE](LICENSE).
