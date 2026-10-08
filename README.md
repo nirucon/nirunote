@@ -54,7 +54,7 @@ Run `./uninstall.sh` and review the script first. Back up your documents and rec
 
 ## License
 
-MIT. Copyright (c) 2026 Nicklas Rudolfsson.
+MIT. Copyright (c) 2026 Ing Leif Nicklas Rudolfsson.
 
 ## Publishing a new version
 
