@@ -1,5 +1,7 @@
 name: Python checks
+
 on: [push, pull_request]
+
 jobs:
   syntax-and-core:
     runs-on: ubuntu-latest
@@ -8,7 +10,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install PySide6
-      - run: python -m compileall -q nirunote gui-smoke-test.py
-      - run: python nirunote/app.py --core-self-test
-      - run: QT_QPA_PLATFORM=offscreen python gui-smoke-test.py
+      - name: Install Qt system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon0 libdbus-1-3
+      - name: Install PySide6
+        run: python -m pip install PySide6
+      - name: Python syntax
+        run: python -m compileall -q nirunote gui-smoke-test.py
+      - name: Core tests
+        run: QT_QPA_PLATFORM=offscreen python nirunote/app.py --core-self-test
+      - name: GUI smoke test
+        run: QT_QPA_PLATFORM=offscreen python gui-smoke-test.py
