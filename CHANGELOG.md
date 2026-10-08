@@ -1,3 +1,11 @@
+## 0.4.2 — 2026-10-08 — CI and release hardening
+
+- Fixed Qt CI dependencies and pinned Ubuntu runner to 24.04.
+- Updated GitHub Actions checkout/setup-python versions to avoid Node.js 20 deprecation.
+- Added release preflight for version consistency and trailing whitespace.
+- Added guarded GitHub Release packaging from the exact CI-tested commit.
+- Kept existing editing behavior, install paths, and user data unchanged.
+
 ## 0.4.1 — GitHub publishing and preview regression tests
 
 - Publish from a fresh clone of existing GitHub `main`, preserving remote history and avoiding unrelated local repositories.

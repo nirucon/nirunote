@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit
 
 
 
-APP='NIRUNOTE'; VERSION='0.4.1'
+APP='NIRUNOTE'; VERSION='0.4.2'
 LARGE_DOCUMENT_CHARS=50000
 THEMES={
 'dark': {'bg':'#090909','fg':'#ededed','muted':'#858585','panel':'#141414','border':'#292929','accent':'#bdbdbd','select':'#333333','line':'#0b0b0b','md':'#6f6f6f'},
