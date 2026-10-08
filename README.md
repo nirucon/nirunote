@@ -3,7 +3,7 @@
 Minimal, keyboard-oriented Markdown editor for Linux, built with Python and PySide6.
 Designed for personal desktop workflows, especially Arch/Omarchy and Debian.
 
-**Version:** 0.4.0 — stabilization release. The project is a personal application, shared as-is.
+**Version:** 0.4.1 — stabilization release. The project is a personal application, shared as-is.
 
 ## Features
 
@@ -55,3 +55,7 @@ Run `./uninstall.sh` and review the script first. Back up your documents and rec
 ## License
 
 MIT. Copyright (c) 2026 Nicklas Rudolfsson.
+
+## Publishing a new version
+
+From an extracted release directory, run `./scripts/publish-github.sh`. It tests the release and stages its files in a temporary fresh clone of the existing GitHub `main` branch. It does **not** initialize a new unrelated Git history or force-push. Review the staged diff and type `yes` to publish. GitHub credentials and a configured Git author identity are required. This updates the source branch, not a GitHub Releases asset or tag.

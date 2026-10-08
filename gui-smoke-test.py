@@ -49,6 +49,29 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
     w.goto_heading if hasattr(w,'goto_heading') else None
     qapp.processEvents()
 
+    # Long document Preview: verify scroll range and stable position on unchanged refresh.
+    sample = ("# ORDNING test\n\n" + "\n".join(f"## Section {i}\n\nParagraph {i} with **Markdown**.\n" for i in range(450)))
+    w.editor.setPlainText(sample)
+    w.previewing = True
+    w.stack.setCurrentIndex(1)
+    w.update_preview()
+    w.resize(850, 600)
+    w.show()
+    for _ in range(8):
+        qapp.processEvents()
+    bar = w.preview.verticalScrollBar()
+    assert bar.maximum() > 0, "Long Preview must be scrollable"
+    bar.setValue(bar.maximum() // 2)
+    qapp.processEvents()
+    middle = bar.value()
+    w.update_preview()
+    qapp.processEvents()
+    assert abs(bar.value() - middle) <= 1, "Unchanged Preview moved scroll position"
+    bar.setValue(bar.maximum())
+    qapp.processEvents()
+    assert bar.value() == bar.maximum(), "Cannot scroll to end of Preview"
+    w.hide()
+
     # Do not call close(): Main.closeEvent intentionally contains user-facing
     # unsaved/recovery logic and must never be part of a non-interactive test.
     w.hide()

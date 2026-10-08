@@ -1,40 +1,35 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
 REMOTE="https://github.com/nirucon/nirunote.git"
-command -v git >/dev/null || { echo "git required"; exit 1; }
-[ -f VERSION ] && [ "$(cat VERSION)" = "0.4.0" ] || { echo "Wrong version"; exit 1; }
-if [ ! -d .git ]; then
-  git init -b main
-fi
-BRANCH="$(git branch --show-current)"
-[ "$BRANCH" = main ] || { echo "Expected main branch, got: $BRANCH"; exit 1; }
-if git remote get-url origin >/dev/null 2>&1; then
-  [ "$(git remote get-url origin)" = "$REMOTE" ] || { echo "origin points elsewhere; refusing"; exit 1; }
-else
-  git remote add origin "$REMOTE"
-fi
+cd "$ROOT"
+[[ "$(cat VERSION)" == "0.4.1" ]] || { echo 'Version mismatch' >&2; exit 1; }
+for cmd in git python3 mktemp cp; do command -v "$cmd" >/dev/null || { echo "Missing: $cmd" >&2; exit 1; }; done
 python3 -m compileall -q nirunote gui-smoke-test.py
 python3 nirunote/app.py --core-self-test
-if python3 -c 'import PySide6' >/dev/null 2>&1; then
-  QT_QPA_PLATFORM=offscreen python3 gui-smoke-test.py
-else
-  echo 'PySide6 missing; GUI smoke test unavailable. Refusing public push.' >&2
-  exit 1
-fi
-git add README.md CHANGELOG.md RELEASE-CONTRACT.md LICENSE VERSION .gitignore install.sh uninstall.sh run.sh gui-smoke-test.py nirunote.desktop nirunote assets scripts .github
-if ! git diff --cached --quiet; then
-  git diff --cached --check
-  git diff --cached --stat
-  read -r -p 'Commit reviewed files? [yes/NO] ' ok
-  [ "$ok" = yes ] || exit 1
-  git commit -m 'Release NIRUNOTE 0.4.0'
-fi
-git fetch origin main 2>/dev/null || true
-if git show-ref --verify --quiet refs/remotes/origin/main; then
-  git merge-base --is-ancestor origin/main HEAD || { echo 'Remote has changes not in local history; refusing push'; exit 1; }
-fi
-read -r -p 'Push main to nirucon/nirunote? [yes/NO] ' ok
-[ "$ok" = yes ] || exit 1
-git push -u origin main
+python3 -c 'import PySide6' || { echo 'PySide6 required for GUI verification' >&2; exit 1; }
+QT_QPA_PLATFORM=offscreen python3 gui-smoke-test.py
+# Always start from remote main: avoids unrelated-history merges and non-fast-forward pushes.
+WORK="$(mktemp -d -t nirunote-publish-XXXXXXXX)"
+trap 'rm -rf -- "$WORK"' EXIT
+git clone --branch main --single-branch "$REMOTE" "$WORK/repo"
+cd "$WORK/repo"
+[[ -z "$(git status --porcelain)" ]] || { echo 'Unexpected dirty clone' >&2; exit 1; }
+FILES=(README.md CHANGELOG.md RELEASE-CONTRACT.md LICENSE VERSION .gitignore install.sh uninstall.sh run.sh gui-smoke-test.py nirunote.desktop)
+for f in "${FILES[@]}"; do cp -- "$ROOT/$f" "$f"; done
+for dir in nirunote assets scripts .github; do
+  mkdir -p "$dir"
+  cp -a "$ROOT/$dir/." "$dir/"
+done
+find nirunote -type d -name __pycache__ -prune -exec rm -rf -- {} +
+find . -name '*.pyc' -type f -delete
+git add -- "${FILES[@]}" nirunote assets scripts .github
+git diff --cached --check
+if git diff --cached --quiet; then echo 'No changes to publish'; exit 0; fi
+git diff --cached --stat
+read -r -p 'Commit and push NIRUNOTE 0.4.1 to GitHub? [yes/NO] ' ok
+[[ "$ok" == yes ]] || { echo 'Cancelled'; exit 1; }
+git -c user.name="${GIT_AUTHOR_NAME:-$(git config user.name)}" -c user.email="${GIT_AUTHOR_EMAIL:-$(git config user.email)}" commit -m 'Release NIRUNOTE 0.4.1'
+# Refuse a race with another publisher, rather than force pushing.
+git push origin HEAD:main
+echo 'Published NIRUNOTE 0.4.1 to GitHub main.'

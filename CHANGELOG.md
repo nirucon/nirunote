@@ -1,3 +1,10 @@
+## 0.4.1 — GitHub publishing and preview regression tests
+
+- Publish from a fresh clone of existing GitHub `main`, preserving remote history and avoiding unrelated local repositories.
+- Stop safely if remote changes during publishing; never force-push.
+- Added long-document Preview scroll-range and stable-refresh GUI regression checks.
+- Kept existing application features, installation layout and user data handling unchanged.
+
 # Changelog
 
 ## 0.4.0 — 2026-10-08
