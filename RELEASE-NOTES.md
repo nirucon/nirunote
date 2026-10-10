@@ -1,8 +1,8 @@
-# NIRUNOTE 0.4.4
+# NIRUNOTE 0.4.5
 
-- Restore Enter/Return activation for focused Save, Don't Save and Cancel buttons.
-- Keep safe initial Cancel, Escape-to-cancel, and theme-consistent neutral buttons.
-- Add GUI regression tests for keyboard-only dialog interaction.
-- No migration or changes to document formats and saved preferences.
+- Fix installer GUI validation on distributions where PySide6.QtTest is not installed (including Void).
+- Exercise keyboard events using QtCore/QtGui instead of an optional QtTest module.
+- Retain the 0.4.4 keyboard activation fix, theme styling and safe Cancel default.
+- No changes to documents, settings, or existing release rollback behavior.
 
-GUI verification on Void, Debian and Omarchy is still recommended.
+The release is designed for Arch/Omarchy, Debian and Void with Python 3 and PySide6 QtWidgets; actual GUI compatibility should be checked on each target distribution.

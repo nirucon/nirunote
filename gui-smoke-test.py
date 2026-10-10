@@ -22,9 +22,15 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
     qapp.setOrganizationName("NIRU-SMOKE")
 
     # Keyboard-only regression checks for the unsaved-changes dialog.
-    from PySide6.QtCore import Qt, QTimer
-    from PySide6.QtTest import QTest
+    from PySide6.QtCore import Qt, QTimer, QCoreApplication, QEvent
+    from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QDialog, QPushButton
+
+    def send_key(key):
+        widget=qapp.focusWidget()
+        assert widget is not None, "No focused widget"
+        QCoreApplication.postEvent(widget,QKeyEvent(QEvent.Type.KeyPress,key,Qt.KeyboardModifier.NoModifier))
+        QCoreApplication.postEvent(widget,QKeyEvent(QEvent.Type.KeyRelease,key,Qt.KeyboardModifier.NoModifier))
 
     def check_unsaved_key(key, button_name, expected):
         def drive():
@@ -51,9 +57,10 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
         dialog=qapp.activeModalWidget()
         buttons={b.text():b for b in dialog.findChildren(QPushButton)}
         assert buttons['Cancel'].hasFocus()
-        QTest.keyClick(qapp.focusWidget(),Qt.Key.Key_Tab)
+        send_key(Qt.Key.Key_Tab)
+        qapp.processEvents()
         assert buttons['Save'].hasFocus()
-        QTest.keyClick(qapp.focusWidget(),Qt.Key.Key_Return)
+        send_key(Qt.Key.Key_Return)
     QTimer.singleShot(0,tab_drive)
     assert mod.neutral_unsaved(None)=='save'
 

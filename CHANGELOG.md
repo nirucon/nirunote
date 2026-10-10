@@ -1,3 +1,9 @@
+## 0.4.5 — 2026-10-10 — Cross-distribution GUI validation
+
+- Remove the optional PySide6.QtTest dependency from installation smoke tests.
+- Use native Qt key events to test Enter, Return, Space, Tab and Escape.
+- Preserve the existing 0.4.4 dialog and theme behavior.
+
 ## 0.4.4 — 2026-10-10 — Keyboard accessibility
 
 - Restore auto-default button behavior for keyboard activation of the unsaved changes dialog.
