@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit
 
 
 
-APP='NIRUNOTE'; VERSION='0.4.3'
+APP='NIRUNOTE'; VERSION='0.4.4'
 LARGE_DOCUMENT_CHARS=50000
 THEMES={
 'dark': {'bg':'#090909','fg':'#ededed','muted':'#858585','panel':'#141414','border':'#292929','accent':'#bdbdbd','select':'#333333','line':'#0b0b0b','md':'#6f6f6f'},
@@ -346,15 +346,16 @@ def neutral_unsaved(parent):
     cancel=QPushButton('Cancel',box)
     save=QPushButton('Save',box)
     for button in (discard,cancel,save):
-        button.setAutoDefault(False)
-        button.setDefault(False)
+        # Let Enter activate the focused button on every Qt platform.
+        button.setAutoDefault(True)
         button.setMinimumWidth(88)
         buttons.addWidget(button)
     layout.addLayout(buttons)
     discard.clicked.connect(lambda: box.done(2))
     cancel.clicked.connect(box.reject)
     save.clicked.connect(lambda: box.done(1))
-    box.setFocusProxy(cancel)
+    # Safe initial action; focused buttons respond to Enter/Return.
+    cancel.setDefault(True)
     cancel.setFocus()
     result=box.exec()
     return {1:'save',2:'discard'}.get(result,'cancel')

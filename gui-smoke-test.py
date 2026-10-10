@@ -21,6 +21,42 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
     qapp.setApplicationName("NIRUNOTE-SMOKE")
     qapp.setOrganizationName("NIRU-SMOKE")
 
+    # Keyboard-only regression checks for the unsaved-changes dialog.
+    from PySide6.QtCore import Qt, QTimer
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QDialog, QPushButton
+
+    def check_unsaved_key(key, button_name, expected):
+        def drive():
+            dialog=qapp.activeModalWidget()
+            assert isinstance(dialog,QDialog)
+            buttons={b.text():b for b in dialog.findChildren(QPushButton)}
+            assert set(buttons)=={"Don't Save",'Cancel','Save'}
+            assert buttons['Cancel'].hasFocus(), 'Cancel must have initial focus'
+            if button_name!='Cancel':
+                buttons[button_name].setFocus()
+                qapp.processEvents()
+            assert buttons[button_name].hasFocus()
+            QTest.keyClick(qapp.focusWidget(),key)
+        QTimer.singleShot(0,drive)
+        assert mod.neutral_unsaved(None)==expected
+
+    for label,result in (("Don't Save",'discard'),('Cancel','cancel'),('Save','save')):
+        check_unsaved_key(Qt.Key.Key_Return,label,result)
+        check_unsaved_key(Qt.Key.Key_Enter,label,result)
+        check_unsaved_key(Qt.Key.Key_Space,label,result)
+    check_unsaved_key(Qt.Key.Key_Escape,'Cancel','cancel')
+
+    def tab_drive():
+        dialog=qapp.activeModalWidget()
+        buttons={b.text():b for b in dialog.findChildren(QPushButton)}
+        assert buttons['Cancel'].hasFocus()
+        QTest.keyClick(qapp.focusWidget(),Qt.Key.Key_Tab)
+        assert buttons['Save'].hasFocus()
+        QTest.keyClick(qapp.focusWidget(),Qt.Key.Key_Return)
+    QTimer.singleShot(0,tab_drive)
+    assert mod.neutral_unsaved(None)=='save'
+
     # Markdown renderer regression tests. Preserve ordinary paragraph folding,
     # but honor CommonMark-style explicit hard line breaks.
     hard = mod.markdown_to_html("**Rapportdatum:** 2026-09-28  \n**Författare:** Nicklas Rudolfsson  \n**E-post:** n@example.se")

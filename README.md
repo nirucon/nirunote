@@ -3,7 +3,7 @@
 Minimal, keyboard-oriented Markdown editor for Linux, built with Python and PySide6.
 Designed for personal desktop workflows, especially Arch/Omarchy and Debian.
 
-**Version:** 0.4.3 — stabilization release. The project is a personal application, shared as-is.
+**Version:** 0.4.4 — stabilization release. The project is a personal application, shared as-is.
 
 ## Features
 

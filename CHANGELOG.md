@@ -1,3 +1,9 @@
+## 0.4.4 — 2026-10-10 — Keyboard accessibility
+
+- Restore auto-default button behavior for keyboard activation of the unsaved changes dialog.
+- Keep Cancel as initial default and Escape action; neutral theme styling unchanged.
+- Add keyboard regression coverage for Enter, Space, Tab and Escape.
+
 ## 0.4.3 — 2026-10-10 — Dialog reliability
 
 - Explicit unsaved-changes dialog outcomes across Qt platform styles; Escape cancels.
