@@ -4,7 +4,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE="https://github.com/nirucon/nirunote.git"
 cd "$ROOT"
 VERSION="$(cat VERSION)"
-[[ "$VERSION" == "0.4.2" ]] || { echo 'Version mismatch' >&2; exit 1; }
+[[ "$VERSION" == "0.4.3" ]] || { echo 'Version mismatch' >&2; exit 1; }
 for cmd in git python3 mktemp cp; do command -v "$cmd" >/dev/null || { echo "Missing: $cmd" >&2; exit 1; }; done
 python3 scripts/release-check.py
 python3 -m compileall -q nirunote gui-smoke-test.py

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit
 
 
 
-APP='NIRUNOTE'; VERSION='0.4.2'
+APP='NIRUNOTE'; VERSION='0.4.3'
 LARGE_DOCUMENT_CHARS=50000
 THEMES={
 'dark': {'bg':'#090909','fg':'#ededed','muted':'#858585','panel':'#141414','border':'#292929','accent':'#bdbdbd','select':'#333333','line':'#0b0b0b','md':'#6f6f6f'},
@@ -330,17 +330,34 @@ def neutral_notice(parent,title,text,button='OK'):
     box.exec()
 
 def neutral_unsaved(parent):
-    box=NeutralMessageBox(parent,'Unsaved changes','Save changes before continuing?')
-    discard=box.addButton("Don't Save",QMessageBox.ButtonRole.DestructiveRole)
-    cancel=box.addButton('Cancel',QMessageBox.ButtonRole.RejectRole)
-    save=box.addButton('Save',QMessageBox.ButtonRole.AcceptRole)
-    for b in (discard,cancel,save):
-        b.setAutoDefault(False); b.setDefault(False)
-    box.exec()
-    clicked=box.clickedButton()
-    if clicked is save: return 'save'
-    if clicked is discard: return 'discard'
-    return 'cancel'
+    """Explicit dialog result codes; never infer intent from native button roles."""
+    box=QDialog(parent)
+    box.setWindowTitle('Unsaved changes')
+    box.setModal(True)
+    box.setProperty('nirunoteDialog',True)
+    layout=QVBoxLayout(box)
+    layout.setContentsMargins(20,18,20,18)
+    layout.setSpacing(18)
+    message=QLabel('Save changes before continuing?',box)
+    layout.addWidget(message)
+    buttons=QHBoxLayout()
+    buttons.addStretch()
+    discard=QPushButton("Don't Save",box)
+    cancel=QPushButton('Cancel',box)
+    save=QPushButton('Save',box)
+    for button in (discard,cancel,save):
+        button.setAutoDefault(False)
+        button.setDefault(False)
+        button.setMinimumWidth(88)
+        buttons.addWidget(button)
+    layout.addLayout(buttons)
+    discard.clicked.connect(lambda: box.done(2))
+    cancel.clicked.connect(box.reject)
+    save.clicked.connect(lambda: box.done(1))
+    box.setFocusProxy(cancel)
+    cancel.setFocus()
+    result=box.exec()
+    return {1:'save',2:'discard'}.get(result,'cancel')
 
 class Main(QMainWindow):
     def __init__(self,skip_session=False):
@@ -571,13 +588,13 @@ QCheckBox::indicator:disabled{{background:{t['panel']};border-color:{t['border']
 QListWidget{{background:{t['bg']};color:{t['fg']};border:1px solid {t['border']};selection-background-color:{t['select']};selection-color:{t['fg']};}}
 QMessageBox{{background:{t['bg']};}}
 QMessageBox QLabel{{color:{t['fg']};font-size:13px;}}
-QMessageBox[nirunoteDialog="true"]{{background:{t['bg']};}}
-QMessageBox[nirunoteDialog="true"] QLabel{{color:{t['fg']};padding:4px 8px 8px 8px;}}
-QMessageBox[nirunoteDialog="true"] QPushButton{{min-width:88px;min-height:30px;background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};border-radius:4px;padding:0px 12px;}}
-QMessageBox[nirunoteDialog="true"] QPushButton:hover{{background:{t['select']};border-color:{t['muted']};}}
-QMessageBox[nirunoteDialog="true"] QPushButton:focus{{background:{t['select']};color:{t['fg']};border:2px solid {t['fg']};font-weight:600;}}
+QMessageBox[nirunoteDialog="true"],QDialog[nirunoteDialog="true"]{{background:{t['bg']};}}
+QMessageBox[nirunoteDialog="true"] QLabel,QDialog[nirunoteDialog="true"] QLabel{{color:{t['fg']};padding:4px 8px 8px 8px;}}
+QMessageBox[nirunoteDialog="true"] QPushButton,QDialog[nirunoteDialog="true"] QPushButton{{min-width:88px;min-height:30px;background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};border-radius:4px;padding:0px 12px;}}
+QMessageBox[nirunoteDialog="true"] QPushButton:hover,QDialog[nirunoteDialog="true"] QPushButton:hover{{background:{t['select']};border-color:{t['muted']};}}
+QMessageBox[nirunoteDialog="true"] QPushButton:focus,QDialog[nirunoteDialog="true"] QPushButton:focus{{background:{t['select']};color:{t['fg']};border:2px solid {t['fg']};font-weight:600;}}
 QPushButton:focus{{background:{t['select']};color:{t['fg']};border:2px solid {t['fg']};padding:5px 11px;}}
-QMessageBox[nirunoteDialog="true"] QPushButton:pressed{{background:{t['select']};border-color:{t['fg']};}}
+QMessageBox[nirunoteDialog="true"] QPushButton:pressed,QDialog[nirunoteDialog="true"] QPushButton:pressed{{background:{t['select']};border-color:{t['fg']};}}
 QDialogButtonBox QPushButton{{min-width:72px;}}
 QToolButton[headerButton="true"]{{min-width:28px;max-width:28px;min-height:28px;max-height:28px;padding:0px;margin:0px;border:0px;background:transparent;color:{t['muted']};font-size:13px;}}
 QToolButton[headerButton="true"]:hover{{background:{t['select']};color:{t['fg']};border-radius:4px;}}

@@ -1,3 +1,8 @@
+## 0.4.3 — 2026-10-10 — Dialog reliability
+
+- Explicit unsaved-changes dialog outcomes across Qt platform styles; Escape cancels.
+- Dialog buttons inherit the selected NIRUNOTE theme without native destructive-button coloring.
+
 ## 0.4.2 — 2026-10-08 — CI and release hardening
 
 - Fixed Qt CI dependencies and pinned Ubuntu runner to 24.04.
