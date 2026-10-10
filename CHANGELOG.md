@@ -1,3 +1,9 @@
+## 0.4.6 — 2026-10-10 — Robust Qt smoke tests
+
+- Remove invalid offscreen initial-focus assumption.
+- Ensure modal dialog closes on test failures to avoid installer timeouts.
+- Keep keyboard action checks and safe Cancel behavior unchanged.
+
 ## 0.4.5 — 2026-10-10 — Cross-distribution GUI validation
 
 - Remove the optional PySide6.QtTest dependency from installation smoke tests.

@@ -1,8 +1,8 @@
-# NIRUNOTE 0.4.5
+# NIRUNOTE 0.4.6
 
-- Fix installer GUI validation on distributions where PySide6.QtTest is not installed (including Void).
-- Exercise keyboard events using QtCore/QtGui instead of an optional QtTest module.
-- Retain the 0.4.4 keyboard activation fix, theme styling and safe Cancel default.
-- No changes to documents, settings, or existing release rollback behavior.
+- Fix cross-distribution GUI validation in Qt offscreen mode.
+- Test keyboard actions without assuming window-manager focus on modal startup.
+- Fail promptly on GUI assertion errors instead of timing out.
+- Preserve neutral theme dialog buttons, Enter/Return, Escape and existing documents/settings.
 
-The release is designed for Arch/Omarchy, Debian and Void with Python 3 and PySide6 QtWidgets; actual GUI compatibility should be checked on each target distribution.
+The installer retains the prior release if validation fails.

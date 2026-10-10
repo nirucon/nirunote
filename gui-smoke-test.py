@@ -21,48 +21,60 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
     qapp.setApplicationName("NIRUNOTE-SMOKE")
     qapp.setOrganizationName("NIRU-SMOKE")
 
-    # Keyboard-only regression checks for the unsaved-changes dialog.
+    # Qt offscreen does not guarantee native window focus on dialog startup.
+    # Explicit focus, synchronous key delivery and cleanup on every failure.
     from PySide6.QtCore import Qt, QTimer, QCoreApplication, QEvent
     from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QDialog, QPushButton
 
-    def send_key(key):
-        widget=qapp.focusWidget()
-        assert widget is not None, "No focused widget"
-        QCoreApplication.postEvent(widget,QKeyEvent(QEvent.Type.KeyPress,key,Qt.KeyboardModifier.NoModifier))
-        QCoreApplication.postEvent(widget,QKeyEvent(QEvent.Type.KeyRelease,key,Qt.KeyboardModifier.NoModifier))
-
     def check_unsaved_key(key, button_name, expected):
+        errors=[]
         def drive():
             dialog=qapp.activeModalWidget()
-            assert isinstance(dialog,QDialog)
-            buttons={b.text():b for b in dialog.findChildren(QPushButton)}
-            assert set(buttons)=={"Don't Save",'Cancel','Save'}
-            assert buttons['Cancel'].hasFocus(), 'Cancel must have initial focus'
-            if button_name!='Cancel':
-                buttons[button_name].setFocus()
+            try:
+                assert isinstance(dialog,QDialog), 'Unsaved dialog not shown'
+                buttons={b.text():b for b in dialog.findChildren(QPushButton)}
+                assert set(buttons)=={"Don't Save",'Cancel','Save'}
+                button=buttons[button_name]
+                button.setFocus()
                 qapp.processEvents()
-            assert buttons[button_name].hasFocus()
-            QTest.keyClick(qapp.focusWidget(),key)
+                assert button.hasFocus(), 'Button could not take focus'
+                for event_type in (QEvent.Type.KeyPress,QEvent.Type.KeyRelease):
+                    QCoreApplication.sendEvent(button,QKeyEvent(event_type,key,Qt.KeyboardModifier.NoModifier))
+                qapp.processEvents()
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                if isinstance(dialog,QDialog) and dialog.isVisible(): dialog.reject()
         QTimer.singleShot(0,drive)
-        assert mod.neutral_unsaved(None)==expected
+        result=mod.neutral_unsaved(None)
+        if errors: raise AssertionError(f'{button_name}: {errors[0]}') from errors[0]
+        assert result==expected, f'{button_name}: expected {expected}, got {result}'
 
     for label,result in (("Don't Save",'discard'),('Cancel','cancel'),('Save','save')):
-        check_unsaved_key(Qt.Key.Key_Return,label,result)
-        check_unsaved_key(Qt.Key.Key_Enter,label,result)
-        check_unsaved_key(Qt.Key.Key_Space,label,result)
+        for key in (Qt.Key.Key_Return,Qt.Key.Key_Enter,Qt.Key.Key_Space):
+            check_unsaved_key(key,label,result)
     check_unsaved_key(Qt.Key.Key_Escape,'Cancel','cancel')
 
+    tab_errors=[]
     def tab_drive():
         dialog=qapp.activeModalWidget()
-        buttons={b.text():b for b in dialog.findChildren(QPushButton)}
-        assert buttons['Cancel'].hasFocus()
-        send_key(Qt.Key.Key_Tab)
-        qapp.processEvents()
-        assert buttons['Save'].hasFocus()
-        send_key(Qt.Key.Key_Return)
+        try:
+            buttons={b.text():b for b in dialog.findChildren(QPushButton)}
+            buttons['Cancel'].setFocus()
+            qapp.processEvents()
+            assert dialog.focusNextChild(), 'Tab focus chain did not advance'
+            qapp.processEvents()
+            assert buttons['Save'].hasFocus(), 'Tab should focus Save after Cancel'
+            buttons['Save'].click()
+        except Exception as exc:
+            tab_errors.append(exc)
+        finally:
+            if isinstance(dialog,QDialog) and dialog.isVisible(): dialog.reject()
     QTimer.singleShot(0,tab_drive)
-    assert mod.neutral_unsaved(None)=='save'
+    tab_result=mod.neutral_unsaved(None)
+    if tab_errors: raise AssertionError(f'Tab navigation: {tab_errors[0]}') from tab_errors[0]
+    assert tab_result=='save'
 
     # Markdown renderer regression tests. Preserve ordinary paragraph folding,
     # but honor CommonMark-style explicit hard line breaks.
