@@ -4,6 +4,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QSettings, QUrl, QSize, QFileSystemWatcher, QDir, Signal, QObject
 from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat, QColor, QSyntaxHighlighter, QTextCursor, QTextFormat, QShortcut, QDesktopServices, QTextDocument
 from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit,QTextBrowser,QFileDialog,QMessageBox,QMenu,QToolButton,QLabel,QWidget,QHBoxLayout,QVBoxLayout,QDialog,QFormLayout,QComboBox,QSpinBox,QCheckBox,QDialogButtonBox,QLineEdit,QInputDialog,QStackedWidget,QFrame,QPushButton,QListWidget,QListWidgetItem)
+try:
+    from .theme import load_nirux_palette, nirux_available
+    from .theme_watcher import ThemeWatcher
+except ImportError:
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
+    from theme import load_nirux_palette, nirux_available
+    from theme_watcher import ThemeWatcher
 
 
 
@@ -132,7 +139,7 @@ class Prefs(QDialog):
     def __init__(self,w):
         super().__init__(w); self.w=w; self.setWindowTitle('NIRUNOTE Preferences'); self.setModal(True); self.setMinimumWidth(390)
         f=QFormLayout(self); f.setContentsMargins(22,22,22,22); f.setSpacing(12)
-        self.theme=QComboBox(); self.theme.addItems(['dark','light','satie']); self.theme.setCurrentText(w.theme)
+        self.theme=QComboBox(); self.theme.addItems(w.available_themes()); self.theme.setCurrentText(w.theme)
         self.fmt=QComboBox(); self.fmt.addItems(['Markdown (.md)','Plain text (.txt)']); self.fmt.setCurrentIndex(0 if w.default_format=='md' else 1)
         self.size=QSpinBox(); self.size.setRange(10,36); self.size.setValue(w.font_size)
         self.width=QComboBox(); self.width.addItems(list(WIDTHS)); self.width.setCurrentText(w.writing_width)
@@ -153,7 +160,7 @@ class Prefs(QDialog):
         p=QFileDialog.getExistingDirectory(self,'Choose default save folder',self.save_folder.text() or str(Path.home()))
         if p: self.save_folder.setText(p)
     def accept(self):
-        w=self.w; w.theme=self.theme.currentText(); w.default_format='md' if self.fmt.currentIndex()==0 else 'txt'; w.writing_width=self.width.currentText(); w.font_size=self.size.value(); w.word_wrap=self.wrap.isChecked(); w.highlight_line=self.line.isChecked(); w.autosave=self.autosave.isChecked(); w.restore=self.restore.isChecked(); w.typewriter=self.typewriter.isChecked(); w.spell_enabled=self.spell.isChecked(); w.spell_language=self.spell_lang.currentText(); w.save_folder_mode='custom' if self.save_mode.currentIndex()==1 else 'last'; w.default_save_folder=self.save_folder.text().strip(); w.restore_last_document=self.restore_last.isChecked(); w.show_reading_time=self.reading_time.isChecked(); w.init_spell(); w.high.rehighlight(); w.changed(); w.save_settings(); w.apply_theme(); w.apply_editor_options(); super().accept()
+        w=self.w; w.theme=self.theme.currentText(); w.default_format='md' if self.fmt.currentIndex()==0 else 'txt'; w.writing_width=self.width.currentText(); w.font_size=self.size.value(); w.word_wrap=self.wrap.isChecked(); w.highlight_line=self.line.isChecked(); w.autosave=self.autosave.isChecked(); w.restore=self.restore.isChecked(); w.typewriter=self.typewriter.isChecked(); w.spell_enabled=self.spell.isChecked(); w.spell_language=self.spell_lang.currentText(); w.save_folder_mode='custom' if self.save_mode.currentIndex()==1 else 'last'; w.default_save_folder=self.save_folder.text().strip(); w.restore_last_document=self.restore_last.isChecked(); w.show_reading_time=self.reading_time.isChecked(); w.init_spell(); w.high.rehighlight(); w.changed(); w.save_settings(); w.apply_theme(); w.configure_theme_watcher(); w.apply_editor_options(); super().accept()
 
 def markdown_to_html(s):
     """Small dependency-free Markdown renderer for NIRUNOTE preview.
@@ -367,8 +374,8 @@ class Main(QMainWindow):
     def __init__(self,skip_session=False):
         super().__init__(); self.settings=QSettings('NIRU','NIRUNOTE'); self.path=None; self.previewing=False; self.focused=False; self._loading=False; self._external_mtime=None; self._ignore_watch=False
         self.spell_enabled=self.settings.value('spell_enabled',True,type=bool); self.spell_language=self.settings.value('spell_language','sv_SE'); self.spell_dict=None; self.spell_deferred=False; self.init_spell();
-        self.theme=self.settings.value('theme','dark'); self.default_format=self.settings.value('format','md'); self.font_size=int(self.settings.value('font_size',17)); self.autosave=self.settings.value('autosave',True,type=bool); self.restore=self.settings.value('restore',True,type=bool); self.typewriter=self.settings.value('typewriter',False,type=bool); self.word_wrap=self.settings.value('word_wrap',True,type=bool); self.highlight_line=self.settings.value('highlight_line',True,type=bool); self.writing_width=self.settings.value('writing_width','Normal'); self.recent=self.settings.value('recent',[],type=list) or []; self.save_folder_mode=self.settings.value('save_folder_mode','last'); self.default_save_folder=self.settings.value('default_save_folder',str(Path.home()/'Documents')); self.last_save_folder=self.settings.value('last_save_folder',str(Path.home()/'Documents')); self.last_open_folder=self.settings.value('last_open_folder',str(Path.home())); self.restore_last_document=self.settings.value('restore_last_document',False,type=bool); self.show_reading_time=self.settings.value('show_reading_time',False,type=bool); self.last_document=self.settings.value('last_document',''); self.line_ending='\n'; self.had_bom=False; self._external_prompt=False
-        self.setWindowTitle(APP); self.setMinimumSize(560,400); self.setAcceptDrops(True); self.watcher=QFileSystemWatcher(self); self.watcher.fileChanged.connect(self.external_file_changed)
+        saved_theme=self.settings.value('theme',''); self.theme=saved_theme or ('Follow NIRUX' if nirux_available() else 'dark'); self.default_format=self.settings.value('format','md'); self.font_size=int(self.settings.value('font_size',17)); self.autosave=self.settings.value('autosave',True,type=bool); self.restore=self.settings.value('restore',True,type=bool); self.typewriter=self.settings.value('typewriter',False,type=bool); self.word_wrap=self.settings.value('word_wrap',True,type=bool); self.highlight_line=self.settings.value('highlight_line',True,type=bool); self.writing_width=self.settings.value('writing_width','Normal'); self.recent=self.settings.value('recent',[],type=list) or []; self.save_folder_mode=self.settings.value('save_folder_mode','last'); self.default_save_folder=self.settings.value('default_save_folder',str(Path.home()/'Documents')); self.last_save_folder=self.settings.value('last_save_folder',str(Path.home()/'Documents')); self.last_open_folder=self.settings.value('last_open_folder',str(Path.home())); self.restore_last_document=self.settings.value('restore_last_document',False,type=bool); self.show_reading_time=self.settings.value('show_reading_time',False,type=bool); self.last_document=self.settings.value('last_document',''); self.line_ending='\n'; self.had_bom=False; self._external_prompt=False
+        self.setWindowTitle(APP); self.setMinimumSize(560,400); self.setAcceptDrops(True); self.watcher=QFileSystemWatcher(self); self.watcher.fileChanged.connect(self.external_file_changed); self.theme_watcher=ThemeWatcher(self); self.theme_watcher.changed.connect(self._nirux_theme_changed)
         geo=self.settings.value('geometry'); self.resize(1000,760)
         if geo: self.restoreGeometry(geo)
         root=QWidget(); self.v=QVBoxLayout(root); self.v.setContentsMargins(0,0,0,0); self.v.setSpacing(0)
@@ -389,7 +396,7 @@ class Main(QMainWindow):
         self.status=QWidget(); sh=QHBoxLayout(self.status); sh.setContentsMargins(14,5,14,7); self.stat_left=QLabel('Markdown · 0 words · 0 chars'); self.stat_right=QLabel('Ln 1, Col 1'); sh.addWidget(self.stat_left); sh.addStretch(); sh.addWidget(self.stat_right); self.v.addWidget(self.status)
         self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.editor.textChanged.connect(self.changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
         self.esc_shortcut=QShortcut(QKeySequence('Escape'),self); self.esc_shortcut.activated.connect(lambda:self.set_focus(False) if self.focused else None)
-        self.build_menu(); self.apply_theme(); self.apply_editor_options(); recovered=self.load_recovery();
+        self.build_menu(); self.apply_theme(); self.configure_theme_watcher(); self.apply_editor_options(); recovered=self.load_recovery();
         if not recovered and not skip_session and self.restore_last_document and self.last_document and Path(self.last_document).is_file(): self.load(self.last_document, quiet=True)
         self.timer=QTimer(self); self.timer.timeout.connect(self.recover); self.timer.start(2500); QTimer.singleShot(0,self.editor.setFocus)
     def paste_plain(self):
@@ -552,8 +559,8 @@ class Main(QMainWindow):
         for n in WIDTHS:
             a=width.addAction(n); a.setCheckable(True); a.setChecked(n==self.writing_width); a.triggered.connect(lambda checked=False,x=n:self.set_width(x))
         tm=viewm.addMenu('Theme')
-        for n in ['Dark','Light','Satie']:
-            a=tm.addAction(n); a.triggered.connect(lambda checked=False,x=n:self.set_theme(x.lower()))
+        for n in self.available_themes():
+            a=tm.addAction(n if n=='Follow NIRUX' else n.capitalize()); a.triggered.connect(lambda checked=False,x=n:self.set_theme(x))
         viewm.addSeparator(); self.act('Text size +','Ctrl++',lambda:self.resize_font(1),viewm); self.act('Text size -','Ctrl+-',lambda:self.resize_font(-1),viewm); self.act('Reset text size','Ctrl+0',self.reset_font,viewm); self.act('Preferences…',None,self.prefs,viewm)
         self.act('About NIRUNOTE',None,self.about,helpm)
         self.update_file_actions()
@@ -574,8 +581,21 @@ class Main(QMainWindow):
     def add_recent(self,p):
         p=str(Path(p).resolve()); self.recent=[p]+[x for x in self.recent if x!=p]; self.recent=self.recent[:10]; self.settings.setValue('recent',self.recent); self.rebuild_recent()
     def clear_recent(self): self.recent=[]; self.settings.setValue('recent',[]); self.rebuild_recent()
+    def available_themes(self):
+        themes=['dark','light','satie']
+        if nirux_available(): themes.append('Follow NIRUX')
+        return themes
     def current_palette(self):
+        if self.theme=='Follow NIRUX':return load_nirux_palette()
         return palette_for(self.theme)
+    def configure_theme_watcher(self):
+        watcher=getattr(self,'theme_watcher',None)
+        if watcher is None:return
+        if self.theme=='Follow NIRUX':watcher.start()
+        else:watcher.stop()
+    def _nirux_theme_changed(self,_palette):
+        if self.theme=='Follow NIRUX':
+            self.apply_theme(); self.update_line_highlight(); self.high.rehighlight()
     def apply_theme(self):
         t=self.current_palette()
         self.setStyleSheet(f'''QMainWindow,QWidget,QPlainTextEdit,QTextBrowser,QDialog{{background:{t['bg']};color:{t['fg']};}} QPlainTextEdit,QTextBrowser{{border:none;padding:30px 18px;selection-background-color:{t['select']};}} QToolButton{{background:transparent;color:{t['muted']};border:none;border-radius:5px;padding:5px 8px;}} QToolButton:hover{{background:{t['panel']};color:{t['fg']};}} QMenu{{background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};padding:6px;}} QMenu::item{{padding:7px 28px 7px 12px;border-radius:4px;}} QMenu::item:selected{{background:{t['select']};}} QMenu::separator{{height:1px;background:{t['border']};margin:5px 8px;}} QScrollBar:vertical{{background:transparent;width:4px;margin:0;}} QScrollBar::handle:vertical{{background:{t['border']};min-height:28px;border-radius:2px;}} QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}} QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}} QLabel{{color:{t['muted']};}}
@@ -613,7 +633,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def apply_width(self):
         width=WIDTHS.get(self.writing_width,900); self.editor.setMaximumWidth(width); self.preview.setMaximumWidth(width)
     def set_width(self,x): self.writing_width=x; self.save_settings(); self.apply_width()
-    def set_theme(self,x): self.theme=x; self.save_settings(); self.apply_theme()
+    def set_theme(self,x): self.theme=x; self.save_settings(); self.apply_theme(); self.configure_theme_watcher()
     def resize_font(self,d): self.font_size=max(10,min(36,self.font_size+d)); self.save_settings(); self.apply_theme()
     def reset_font(self): self.font_size=17; self.save_settings(); self.apply_theme()
     def toggle_wrap(self): self.word_wrap=not self.word_wrap; self.save_settings(); self.apply_editor_options(); self.wrap_action.setChecked(self.word_wrap)
@@ -878,6 +898,27 @@ def core_self_test():
         for key in ('bg','fg','muted','panel','border','accent','select','line','md'):
             if key not in palette_for('dark'): raise RuntimeError('palette missing '+key)
         if palette_for('unknown') != palette_for('dark'): raise RuntimeError('unknown theme fallback mismatch')
+        old_config=os.environ.get('XDG_CONFIG_HOME'); old_path=os.environ.get('PATH')
+        try:
+            with tempfile.TemporaryDirectory(prefix='nirunote-theme-') as theme_dir:
+                os.environ['XDG_CONFIG_HOME']=theme_dir; os.environ['PATH']='/usr/bin:/bin'
+                if nirux_available(): raise RuntimeError('empty config must not detect NIRUX')
+                theme_root=Path(theme_dir); (theme_root/'nirux/theme').mkdir(parents=True); (theme_root/'niruwm').mkdir()
+                (theme_root/'nirux/theme/kitty.conf').write_text('background #101010\nforeground #eeeeee\ncolor4 #88aacc\ncolor8 #888888\nselection_background #333333\n',encoding='utf-8')
+                (theme_root/'niruwm/appearance.toml').write_text('[font]\nsize = 14\n',encoding='utf-8')
+                if not nirux_available(): raise RuntimeError('NIRUX files were not detected')
+                nirux=load_nirux_palette()
+                for key in ('bg','fg','muted','panel','border','accent','select','line','md'):
+                    if key not in nirux: raise RuntimeError('NIRUX palette missing '+key)
+                if nirux['bg']!='#101010': raise RuntimeError('NIRUX background mismatch')
+                (theme_root/'niruwm/appearance.toml').write_text('not valid = [',encoding='utf-8')
+                fallback=load_nirux_palette()
+                if fallback['bg']!='#101010': raise RuntimeError('broken appearance should preserve kitty fallback')
+        finally:
+            if old_config is None: os.environ.pop('XDG_CONFIG_HOME',None)
+            else: os.environ['XDG_CONFIG_HOME']=old_config
+            if old_path is None: os.environ.pop('PATH',None)
+            else: os.environ['PATH']=old_path
         shutil.rmtree(td,ignore_errors=True); print('NIRUNOTE core self-test: OK'); return 0
     except Exception as e:
         print(f'NIRUNOTE core self-test: FAILED ({e})',file=sys.stderr); return 1

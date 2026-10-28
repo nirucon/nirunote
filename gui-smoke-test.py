@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
 
     # Qt offscreen does not guarantee native window focus on dialog startup.
     # Explicit focus, synchronous key delivery and cleanup on every failure.
-    from PySide6.QtCore import Qt, QTimer, QCoreApplication, QEvent
+    from PySide6.QtCore import Qt, QTimer, QCoreApplication, QEvent, QEventLoop
     from PySide6.QtGui import QKeyEvent
     from PySide6.QtWidgets import QDialog, QPushButton
 
@@ -130,6 +130,28 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
     # Do not call close(): Main.closeEvent intentionally contains user-facing
     # unsaved/recovery logic and must never be part of a non-interactive test.
     w.hide()
+
+    # NIRUX theme watcher: atomic replacement must emit without touching the
+    # editor document or its cursor.
+    watcher_appearance = base / 'niruwm' / 'appearance.toml'
+    watcher_kitty = base / 'nirux' / 'theme' / 'kitty.conf'
+    watcher_appearance.parent.mkdir(parents=True, exist_ok=True)
+    watcher_kitty.parent.mkdir(parents=True, exist_ok=True)
+    watcher_appearance.write_text('[font]\nsize = 14\n')
+    watcher_kitty.write_text('background #111111\nforeground #eeeeee\n')
+    watcher = mod.ThemeWatcher(paths={'appearance': watcher_appearance, 'config': base / 'niruwm' / 'config.toml', 'kitty': watcher_kitty})
+    seen = []
+    watcher.changed.connect(lambda palette: (seen.append(palette), watcher_loop.quit()))
+    watcher.start()
+    watcher_loop = QEventLoop()
+    replacement = watcher_kitty.with_suffix('.new')
+    replacement.write_text('background #222222\nforeground #dddddd\n')
+    replacement.replace(watcher_kitty)
+    QTimer.singleShot(3000, watcher_loop.quit)
+    watcher_loop.exec()
+    watcher.stop()
+    assert seen and seen[-1]['bg'] == '#222222', seen
+
     w.deleteLater()
     qapp.processEvents()
     qapp.quit()

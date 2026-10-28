@@ -40,6 +40,8 @@
 
 ## Unreleased
 
+- Added conditional Follow NIRUX detection and live theme updates without
+  changing the default on systems where NIRUX is absent.
 - Centralized theme palette resolution; unknown theme names now fall back to
   dark without silently rewriting the saved preference.
 ## 0.4.0 — 2026-10-08
