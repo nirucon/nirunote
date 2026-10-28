@@ -40,6 +40,8 @@
 
 ## Unreleased
 
+- Restrict Preview links to http, https and mailto, escape link attributes and
+  validate anchor clicks before opening them externally.
 - Move spell-dictionary probing, Quick Open scanning, recovery writes and large
   Preview rendering off the GUI thread, with cancellation-by-generation and
   explicit large-document load limits.

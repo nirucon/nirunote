@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os, sys, json, html, re, tempfile, time, subprocess, shutil, threading
+from urllib.parse import urlparse
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QSettings, QUrl, QSize, QFileSystemWatcher, QDir, Signal, QObject
 from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat, QColor, QSyntaxHighlighter, QTextCursor, QTextFormat, QShortcut, QDesktopServices, QTextDocument
@@ -168,6 +169,14 @@ class Prefs(QDialog):
     def accept(self):
         w=self.w; w.theme=self.theme.currentText(); w.default_format='md' if self.fmt.currentIndex()==0 else 'txt'; w.writing_width=self.width.currentText(); w.font_size=self.size.value(); w.word_wrap=self.wrap.isChecked(); w.highlight_line=self.line.isChecked(); w.autosave=self.autosave.isChecked(); w.restore=self.restore.isChecked(); w.typewriter=self.typewriter.isChecked(); w.spell_enabled=self.spell.isChecked(); w.spell_language=self.spell_lang.currentText(); w.save_folder_mode='custom' if self.save_mode.currentIndex()==1 else 'last'; w.default_save_folder=self.save_folder.text().strip(); w.restore_last_document=self.restore_last.isChecked(); w.show_reading_time=self.reading_time.isChecked(); w.init_spell(); w.high.rehighlight(); w.changed(); w.save_settings(); w.apply_theme(); w.configure_theme_watcher(); w.apply_editor_options(); super().accept()
 
+def safe_link(target):
+    target=(target or '').strip()
+    try:
+        scheme=urlparse(target).scheme.lower()
+    except Exception:
+        return None
+    return target if scheme in ('http','https','mailto') else None
+
 def markdown_to_html(s):
     """Small dependency-free Markdown renderer for NIRUNOTE preview.
 
@@ -188,7 +197,10 @@ def markdown_to_html(s):
         text=pat.sub(preserve,text)
         text=html.escape(text)
         text=re.sub(r'`([^`]+)`',r'<code>\1</code>',text)
-        text=re.sub(r'\[([^]]+)\]\(([^)]+)\)',r'<a href="\2">\1</a>',text)
+        def link(m):
+            target=safe_link(m.group(2))
+            return f'<a href="{html.escape(target,quote=True)}">{m.group(1)}</a>' if target is not None else m.group(1)
+        text=re.sub(r'\[([^]]+)\]\(([^)]+)\)',link,text)
         text=re.sub(r'\*\*(.+?)\*\*',r'<strong>\1</strong>',text)
         text=re.sub(r'(?<!\*)\*([^*]+)\*(?!\*)',r'<em>\1</em>',text)
         for i,tag in enumerate(tokens): text=text.replace(f'@@NIRUHTML{i}@@',tag)
@@ -397,7 +409,7 @@ class Main(QMainWindow):
         self.stack=QStackedWidget()
         self.editor_host=QWidget(); eh=QHBoxLayout(self.editor_host); eh.setContentsMargins(24,20,24,0); eh.setSpacing(0); eh.addStretch()
         self.editor=NoteEditor(self); self.editor.setFrameStyle(0); self.editor.setTabStopDistance(32); self.editor.setAcceptDrops(False); eh.addWidget(self.editor,1); eh.addStretch()
-        self.preview_host=QWidget(); ph=QHBoxLayout(self.preview_host); ph.setContentsMargins(24,20,24,0); ph.setSpacing(0); ph.addStretch(); self.preview=QTextBrowser(); self.preview.setOpenExternalLinks(True); self.preview.setFrameStyle(0); ph.addWidget(self.preview,1); ph.addStretch()
+        self.preview_host=QWidget(); ph=QHBoxLayout(self.preview_host); ph.setContentsMargins(24,20,24,0); ph.setSpacing(0); ph.addStretch(); self.preview=QTextBrowser(); self.preview.setOpenExternalLinks(False); self.preview.anchorClicked.connect(self.open_preview_link); self.preview.setFrameStyle(0); ph.addWidget(self.preview,1); ph.addStretch()
         self.stack.addWidget(self.editor_host); self.stack.addWidget(self.preview_host); self.v.addWidget(self.stack,1)
         self.status=QWidget(); sh=QHBoxLayout(self.status); sh.setContentsMargins(14,5,14,7); self.stat_left=QLabel('Markdown · 0 words · 0 chars'); self.stat_right=QLabel('Ln 1, Col 1'); sh.addWidget(self.stat_left); sh.addStretch(); sh.addWidget(self.stat_right); self.v.addWidget(self.status)
         self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(140); self.preview_timer.timeout.connect(self.update_preview); self._preview_generation=0; self.editor.textChanged.connect(self.changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
@@ -579,6 +591,10 @@ class Main(QMainWindow):
         self.act('About NIRUNOTE',None,self.about,helpm)
         self.update_file_actions()
 
+    def open_preview_link(self,url):
+        target=safe_link(url.toString())
+        if target is not None:QDesktopServices.openUrl(QUrl(target))
+        else:self.stat_right.setText('Blocked unsafe preview link'); QTimer.singleShot(1500,self.cursor_changed)
     def update_file_actions(self):
         has_file=bool(self.path)
         for a in (getattr(self,'rename_action',None),getattr(self,'folder_action',None),getattr(self,'path_action',None)):
@@ -926,6 +942,12 @@ def core_self_test():
         for key in ('bg','fg','muted','panel','border','accent','select','line','md'):
             if key not in palette_for('dark'): raise RuntimeError('palette missing '+key)
         if palette_for('unknown') != palette_for('dark'): raise RuntimeError('unknown theme fallback mismatch')
+        if 'href="https://example.test"' not in markdown_to_html('[ok](https://example.test)'): raise RuntimeError('safe link missing')
+        if markdown_to_html('[bad](javascript:alert(1))').find('href=')!=-1: raise RuntimeError('javascript link remained')
+        if markdown_to_html('[bad](data:text/html,x)').find('href=')!=-1: raise RuntimeError('data link remained')
+        if markdown_to_html('[bad](file:///etc/passwd)').find('href=')!=-1: raise RuntimeError('file link remained')
+        if '<small onclick=' not in markdown_to_html('<small onclick="x">safe</small>'): pass
+        if '<small onclick=' in markdown_to_html('<small onclick="x">safe</small>'): raise RuntimeError('attribute HTML remained')
         old_config=os.environ.get('XDG_CONFIG_HOME'); old_path=os.environ.get('PATH')
         try:
             with tempfile.TemporaryDirectory(prefix='nirunote-theme-') as theme_dir:
