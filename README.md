@@ -3,13 +3,16 @@
 Minimal, keyboard-oriented Markdown editor for Linux, built with Python and PySide6.
 Designed for personal desktop workflows, especially Arch/Omarchy and Debian.
 
-**Version:** 0.4.6 — stabilization release. The project is a personal application, shared as-is.
+**Version:** 0.5.0 — responsive NIRUX writing release. The project is a personal application, shared as-is.
 
 ## Features
 
 - Markdown editing and styled Preview, with safe limited inline HTML (`small`, `br`, `kbd`, `sub`, `sup`, `mark`).
-- Dark, light and Satie themes; focus mode and configurable text width.
-- Find/replace, headings navigation, recent files, command palette.
+- Dark, light and Satie themes, plus Follow NIRUX when NIRUX is detected; focus mode and configurable text width.
+- Find/replace, headings navigation, recent files, command palette and cancellable Quick Open.
+- Safe Preview links (http, https, mailto) and a small, inert inline-HTML subset.
+- Background spell probing, recovery writes and large-document Preview rendering with a clear status line.
+- Accessibility names and keyboard-complete dialogs; exact saved/recovered state remains visible.
 - Local spell checking with Hunspell when installed and a dictionary is available.
 - Recovery state, atomic saves, external file-change notification.
 

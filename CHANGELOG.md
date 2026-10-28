@@ -38,7 +38,7 @@
 
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-10-28
 
 - Extract the Markdown renderer and Hunspell dictionary into tested modules,
   keeping the app CLI, installer layout and editor behavior unchanged.
