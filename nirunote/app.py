@@ -15,6 +15,9 @@ THEMES={
 'satie': {'bg':'#ddd5c4','fg':'#292b29','muted':'#737168','panel':'#cbc2af','border':'#aaa18f','accent':'#4f4c45','select':'#bbb6a9','line':'#ddd6c8','md':'#8c887d'} }
 WIDTHS={'Narrow':720,'Normal':900,'Wide':1100,'Full width':16777215}
 
+def palette_for(theme):
+    return dict(THEMES.get(theme,THEMES['dark']))
+
 class SpellResult(QObject):
     finished = Signal(object)
 
@@ -87,7 +90,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     def fmt(self,col,bold=False,italic=False):
         f=QTextCharFormat(); f.setForeground(QColor(col)); f.setFontWeight(700 if bold else 400); f.setFontItalic(italic); return f
     def highlightBlock(self,text):
-        t=THEMES[self.window.theme]
+        t=self.window.current_palette()
         # Syntax markers are deliberately muted; content remains dominant.
         for m in re.finditer(r'^(#{1,6})(\s+)(.*)$',text):
             level=len(m.group(1))
@@ -571,8 +574,10 @@ class Main(QMainWindow):
     def add_recent(self,p):
         p=str(Path(p).resolve()); self.recent=[p]+[x for x in self.recent if x!=p]; self.recent=self.recent[:10]; self.settings.setValue('recent',self.recent); self.rebuild_recent()
     def clear_recent(self): self.recent=[]; self.settings.setValue('recent',[]); self.rebuild_recent()
+    def current_palette(self):
+        return palette_for(self.theme)
     def apply_theme(self):
-        t=THEMES.get(self.theme,THEMES['dark']); self.theme=self.theme if self.theme in THEMES else 'dark'
+        t=self.current_palette()
         self.setStyleSheet(f'''QMainWindow,QWidget,QPlainTextEdit,QTextBrowser,QDialog{{background:{t['bg']};color:{t['fg']};}} QPlainTextEdit,QTextBrowser{{border:none;padding:30px 18px;selection-background-color:{t['select']};}} QToolButton{{background:transparent;color:{t['muted']};border:none;border-radius:5px;padding:5px 8px;}} QToolButton:hover{{background:{t['panel']};color:{t['fg']};}} QMenu{{background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};padding:6px;}} QMenu::item{{padding:7px 28px 7px 12px;border-radius:4px;}} QMenu::item:selected{{background:{t['select']};}} QMenu::separator{{height:1px;background:{t['border']};margin:5px 8px;}} QScrollBar:vertical{{background:transparent;width:4px;margin:0;}} QScrollBar::handle:vertical{{background:{t['border']};min-height:28px;border-radius:2px;}} QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}} QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}} QLabel{{color:{t['muted']};}}
 QLineEdit,QComboBox,QSpinBox{{background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};border-radius:4px;padding:6px;selection-background-color:{t['select']};selection-color:{t['fg']};}}
 QLineEdit:focus,QComboBox:focus,QSpinBox:focus{{border:1px solid {t['muted']};}}
@@ -672,7 +677,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if self.typewriter: self.editor.centerCursor()
     def update_line_highlight(self):
         if not self.highlight_line or self.previewing: self.editor.setExtraSelections([]); return
-        sel=QTextEdit.ExtraSelection(); sel.format.setBackground(QColor(THEMES[self.theme]['line'])); sel.format.setProperty(QTextFormat.Property.FullWidthSelection,True); sel.cursor=self.editor.textCursor(); sel.cursor.clearSelection(); self.editor.setExtraSelections([sel])
+        sel=QTextEdit.ExtraSelection(); sel.format.setBackground(QColor(self.current_palette()['line'])); sel.format.setProperty(QTextFormat.Property.FullWidthSelection,True); sel.cursor=self.editor.textCursor(); sel.cursor.clearSelection(); self.editor.setExtraSelections([sel])
     def current_ext(self): return (Path(self.path).suffix.lower().lstrip('.') if self.path else self.default_format)
     def maybe_save(self):
         if not self.dirty.text(): return True
@@ -810,7 +815,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         # Build a stable preview snapshot. QTextBrowser.setHtml() is destructive
         # to its viewport/scroll state, so never call it again for identical
         # content. This is especially important for long Markdown documents.
-        t=THEMES[self.theme]
+        t=self.current_palette()
         rendered=f"<style>body{{line-height:1.40;color:{t['fg']};background:{t['bg']};margin:0;}} a{{color:{t['accent']};}} small{{font-size:.78em;color:{t['muted']};}} kbd{{font-family:monospace;font-size:.86em;background:{t['panel']};border:1px solid {t['border']};border-radius:3px;padding:1px 4px;}} sub,sup{{font-size:.75em;}} mark{{background:{t['select']};color:{t['fg']};padding:0 2px;}} p{{margin:.16em 0 .68em;}} code{{background:{t['panel']};padding:2px 5px;border-radius:3px;}} pre{{background:{t['panel']};padding:12px 14px;margin:.55em 0 .85em;white-space:pre-wrap;}} pre code{{padding:0;background:transparent;}} blockquote{{color:{t['muted']};border-left:3px solid {t['border']};padding-left:12px;margin:.40em 0 .75em;}} h1{{font-size:1.55em;margin:1.05em 0 .38em;}} h2{{font-size:1.32em;margin:1em 0 .42em;}} h3{{font-size:1.16em;margin:.82em 0 .30em;}} h4,h5,h6{{margin:.72em 0 .28em;}} ul,ol{{margin:.25em 0 .72em;padding-left:1.55em;}} li{{margin:.10em 0;}} hr{{border:0;border-top:1px solid {t['border']};margin:.9em 0 1.05em;}}</style>"+markdown_to_html(self.editor.toPlainText())
         if getattr(self,'_preview_html',None)==rendered:
             return
@@ -870,6 +875,9 @@ def core_self_test():
                 if os.path.exists(tmp): os.unlink(tmp)
         aw(p,'alpha'); aw(p,'beta')
         if p.read_text(encoding='utf-8')!='beta': raise RuntimeError('atomic save mismatch')
+        for key in ('bg','fg','muted','panel','border','accent','select','line','md'):
+            if key not in palette_for('dark'): raise RuntimeError('palette missing '+key)
+        if palette_for('unknown') != palette_for('dark'): raise RuntimeError('unknown theme fallback mismatch')
         shutil.rmtree(td,ignore_errors=True); print('NIRUNOTE core self-test: OK'); return 0
     except Exception as e:
         print(f'NIRUNOTE core self-test: FAILED ({e})',file=sys.stderr); return 1

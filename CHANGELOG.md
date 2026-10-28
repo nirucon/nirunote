@@ -38,6 +38,10 @@
 
 # Changelog
 
+## Unreleased
+
+- Centralized theme palette resolution; unknown theme names now fall back to
+  dark without silently rewriting the saved preference.
 ## 0.4.0 — 2026-10-08
 
 - Based on 0.3.11, retaining editor and Preview features.
