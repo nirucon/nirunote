@@ -40,6 +40,9 @@
 
 ## Unreleased
 
+- Improve the status line with saved/modified state, NIRUX theme label and
+  recovery notice; make Quick Open cancellable and give editor, preview,
+  status and dialogs accessible names.
 - Restrict Preview links to http, https and mailto, escape link attributes and
   validate anchor clicks before opening them externally.
 - Move spell-dictionary probing, Quick Open scanning, recovery writes and large

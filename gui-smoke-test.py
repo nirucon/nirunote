@@ -94,6 +94,8 @@ with tempfile.TemporaryDirectory(prefix="nirunote-smoke-") as td:
     assert "&lt;script&gt;" in unsafe and "&lt;iframe" in unsafe, unsafe
 
     w = mod.Main()
+    assert 'Markdown' in w.stat_left.text() and 'Saved' in w.stat_left.text(), w.stat_left.text()
+    assert w.editor.accessibleName() == 'Markdown editor'
     w.apply_theme()
     w.apply_editor_options()
     w.update_line_highlight()
