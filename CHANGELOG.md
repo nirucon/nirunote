@@ -40,6 +40,8 @@
 
 ## Unreleased
 
+- Extract the Markdown renderer and Hunspell dictionary into tested modules,
+  keeping the app CLI, installer layout and editor behavior unchanged.
 - Improve the status line with saved/modified state, NIRUX theme label and
   recovery notice; make Quick Open cancellable and give editor, preview,
   status and dialogs accessible names.
