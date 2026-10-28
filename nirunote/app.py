@@ -3,6 +3,11 @@ import os, sys, json, html, re, tempfile, time, subprocess, shutil, threading
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QSettings, QUrl, QSize, QFileSystemWatcher, QDir, Signal, QObject
 from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat, QColor, QSyntaxHighlighter, QTextCursor, QTextFormat, QShortcut, QDesktopServices, QTextDocument
+try:
+    from .workers import run_async
+except ImportError:
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
+    from workers import run_async
 from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit,QTextBrowser,QFileDialog,QMessageBox,QMenu,QToolButton,QLabel,QWidget,QHBoxLayout,QVBoxLayout,QDialog,QFormLayout,QComboBox,QSpinBox,QCheckBox,QDialogButtonBox,QLineEdit,QInputDialog,QStackedWidget,QFrame,QPushButton,QListWidget,QListWidgetItem)
 try:
     from .theme import load_nirux_palette, nirux_available
@@ -16,6 +21,7 @@ except ImportError:
 
 APP='NIRUNOTE'; VERSION='0.4.6'
 LARGE_DOCUMENT_CHARS=50000
+MAX_LOAD_BYTES=20*1024*1024
 THEMES={
 'dark': {'bg':'#090909','fg':'#ededed','muted':'#858585','panel':'#141414','border':'#292929','accent':'#bdbdbd','select':'#333333','line':'#0b0b0b','md':'#6f6f6f'},
 'light': {'bg':'#f7f7f4','fg':'#181818','muted':'#777777','panel':'#ecece8','border':'#d2d2cc','accent':'#444444','select':'#dcdcd6','line':'#f6f6f2','md':'#9a9a92'},
@@ -373,7 +379,7 @@ def neutral_unsaved(parent):
 class Main(QMainWindow):
     def __init__(self,skip_session=False):
         super().__init__(); self.settings=QSettings('NIRU','NIRUNOTE'); self.path=None; self.previewing=False; self.focused=False; self._loading=False; self._external_mtime=None; self._ignore_watch=False
-        self.spell_enabled=self.settings.value('spell_enabled',True,type=bool); self.spell_language=self.settings.value('spell_language','sv_SE'); self.spell_dict=None; self.spell_deferred=False; self.init_spell();
+        self.spell_enabled=self.settings.value('spell_enabled',True,type=bool); self.spell_language=self.settings.value('spell_language','sv_SE'); self.spell_dict=None; self.spell_deferred=False; self._spell_generation=0; self._recovery_pending=False; self.init_spell();
         saved_theme=self.settings.value('theme',''); self.theme=saved_theme or ('Follow NIRUX' if nirux_available() else 'dark'); self.default_format=self.settings.value('format','md'); self.font_size=int(self.settings.value('font_size',17)); self.autosave=self.settings.value('autosave',True,type=bool); self.restore=self.settings.value('restore',True,type=bool); self.typewriter=self.settings.value('typewriter',False,type=bool); self.word_wrap=self.settings.value('word_wrap',True,type=bool); self.highlight_line=self.settings.value('highlight_line',True,type=bool); self.writing_width=self.settings.value('writing_width','Normal'); self.recent=self.settings.value('recent',[],type=list) or []; self.save_folder_mode=self.settings.value('save_folder_mode','last'); self.default_save_folder=self.settings.value('default_save_folder',str(Path.home()/'Documents')); self.last_save_folder=self.settings.value('last_save_folder',str(Path.home()/'Documents')); self.last_open_folder=self.settings.value('last_open_folder',str(Path.home())); self.restore_last_document=self.settings.value('restore_last_document',False,type=bool); self.show_reading_time=self.settings.value('show_reading_time',False,type=bool); self.last_document=self.settings.value('last_document',''); self.line_ending='\n'; self.had_bom=False; self._external_prompt=False
         self.setWindowTitle(APP); self.setMinimumSize(560,400); self.setAcceptDrops(True); self.watcher=QFileSystemWatcher(self); self.watcher.fileChanged.connect(self.external_file_changed); self.theme_watcher=ThemeWatcher(self); self.theme_watcher.changed.connect(self._nirux_theme_changed)
         geo=self.settings.value('geometry'); self.resize(1000,760)
@@ -394,7 +400,7 @@ class Main(QMainWindow):
         self.preview_host=QWidget(); ph=QHBoxLayout(self.preview_host); ph.setContentsMargins(24,20,24,0); ph.setSpacing(0); ph.addStretch(); self.preview=QTextBrowser(); self.preview.setOpenExternalLinks(True); self.preview.setFrameStyle(0); ph.addWidget(self.preview,1); ph.addStretch()
         self.stack.addWidget(self.editor_host); self.stack.addWidget(self.preview_host); self.v.addWidget(self.stack,1)
         self.status=QWidget(); sh=QHBoxLayout(self.status); sh.setContentsMargins(14,5,14,7); self.stat_left=QLabel('Markdown · 0 words · 0 chars'); self.stat_right=QLabel('Ln 1, Col 1'); sh.addWidget(self.stat_left); sh.addStretch(); sh.addWidget(self.stat_right); self.v.addWidget(self.status)
-        self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.editor.textChanged.connect(self.changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
+        self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(140); self.preview_timer.timeout.connect(self.update_preview); self._preview_generation=0; self.editor.textChanged.connect(self.changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
         self.esc_shortcut=QShortcut(QKeySequence('Escape'),self); self.esc_shortcut.activated.connect(lambda:self.set_focus(False) if self.focused else None)
         self.build_menu(); self.apply_theme(); self.configure_theme_watcher(); self.apply_editor_options(); recovered=self.load_recovery();
         if not recovered and not skip_session and self.restore_last_document and self.last_document and Path(self.last_document).is_file(): self.load(self.last_document, quiet=True)
@@ -412,19 +418,27 @@ class Main(QMainWindow):
 
 
     def init_spell(self):
-        self.spell_dict=None
-        if not self.spell_enabled: return
+        self._spell_generation+=1; generation=self._spell_generation
+        self.spell_dict=None; self.spell_deferred=True
+        if not self.spell_enabled:
+            self.spell_deferred=False; return
         root=Path.home()/'.local/share/nirunote/dictionaries'
         names=(['sv_SE','en_US'] if self.spell_language=='auto' else [self.spell_language])
-        for name in names:
-            try:
-                d=HunspellDictionary(root/name, root/'personal.txt')
-                probe='Hej' if name=='sv_SE' else 'Hello'
-                if d.check(probe) and not d.check('asdasdasd'):
-                    self.spell_dict=d
-                    d.results.finished.connect(self.spell_finished)
-                    return
-            except Exception: continue
+        def probe():
+            for name in names:
+                try:
+                    d=HunspellDictionary(root/name, root/'personal.txt')
+                    check='Hej' if name=='sv_SE' else 'Hello'
+                    if d.check(check) and not d.check('asdasdasd'): return d
+                except Exception: continue
+            return None
+        def done(dictionary):
+            if generation!=self._spell_generation or not self.spell_enabled:return
+            self.spell_dict=dictionary; self.spell_deferred=False
+            if dictionary is not None:dictionary.results.finished.connect(self.spell_finished)
+            if hasattr(self,'high'):self.high.rehighlight()
+            self.update_document_stats()
+        run_async(self,probe,done)
 
     def replace_cursor_word(self,cursor,text):
         cursor.insertText(text)
@@ -646,7 +660,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         self.spell_deferred=True
         if not self._loading: self.dirty.setText('●')
         self.stats_timer.start()
-        if self.previewing: self.update_preview()
+        if self.previewing: self.preview_timer.start()
         # Loading setPlainText emits textChanged too. Do not schedule a costly
         # spelling pass for that transient load event; load() leaves the
         # document ready and spelling will run after the first real edit.
@@ -719,7 +733,9 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if self.maybe_save(): self.load(p)
     def load(self,p,quiet=False):
         try:
-            path=Path(p); raw=path.read_bytes(); self.had_bom=raw.startswith(b'\xef\xbb\xbf'); text=raw.decode('utf-8-sig'); self.line_ending='\r\n' if b'\r\n' in raw else '\n'
+            path=Path(p); size=path.stat().st_size
+            if size>MAX_LOAD_BYTES: raise RuntimeError(f'Document is too large ({size} bytes).')
+            raw=path.read_bytes(); self.had_bom=raw.startswith(b'\xef\xbb\xbf'); text=raw.decode('utf-8-sig'); self.line_ending='\r\n' if b'\r\n' in raw else '\n'
             self._loading=True; self.editor.setPlainText(text); self._loading=False; self.path=str(path); self.title.setText(path.name); self.dirty.setText(''); self.clear_recovery(); self.add_recent(path); self.watch_current(); self.last_document=self.path; self.save_settings(); self.update_document_stats()
             pos=int(self.settings.value('cursor/'+str(path.resolve()),0)); c=self.editor.textCursor(); c.setPosition(min(pos,len(text))); self.editor.setTextCursor(c); self.cursor_changed(); self.editor.setFocus(); self.update_file_actions()
         except Exception as e:
@@ -798,13 +814,8 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def notes_root(self):
         p=Path(self.default_save_folder).expanduser() if self.save_folder_mode=='custom' else Path(self.last_save_folder).expanduser(); return p if p.is_dir() else Path.home()
     def quick_open(self):
-        root=self.notes_root(); files=[]
-        try:
-            for p in root.rglob('*'):
-                if p.is_file() and p.suffix.lower() in ('.md','.markdown','.txt'): files.append(p)
-                if len(files)>=1500: break
-        except OSError: pass
-        d=QDialog(self); d.setWindowTitle('Quick Open'); d.resize(620,460); v=QVBoxLayout(d); search=QLineEdit(); search.setPlaceholderText(f'Search {root}'); lst=QListWidget(); v.addWidget(search); v.addWidget(lst,1)
+        root=self.notes_root(); files=[]; generation=self._spell_generation
+        d=QDialog(self); d.setWindowTitle('Quick Open'); d.resize(620,460); v=QVBoxLayout(d); search=QLineEdit(); search.setPlaceholderText(f'Search {root}'); status=QLabel('Scanning…'); lst=QListWidget(); v.addWidget(search); v.addWidget(status); v.addWidget(lst,1)
         def fill(q=''):
             lst.clear(); terms=q.casefold().split(); ranked=[]
             for p in files:
@@ -812,7 +823,20 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
                 if all(t in low for t in terms): ranked.append((sum(low.find(t) for t in terms),rel,p))
             for _,rel,p in sorted(ranked)[:200]: item=QListWidgetItem(rel); item.setData(Qt.ItemDataRole.UserRole,str(p)); lst.addItem(item)
             if lst.count(): lst.setCurrentRow(0)
-        fill(); search.textChanged.connect(fill); lst.itemActivated.connect(lambda item:(d.accept()))
+            status.setText(f'{len(ranked)} match(es)' if files else 'No Markdown or text files found')
+        def scan():
+            found=[]
+            try:
+                for p in root.rglob('*'):
+                    if p.is_file() and p.suffix.lower() in ('.md','.markdown','.txt'): found.append(p)
+                    if len(found)>=1500: break
+            except OSError: pass
+            return found
+        def loaded(found):
+            files.extend(found); fill(search.text())
+        def failed(error): status.setText(f'Scan failed: {error}')
+        fill(); search.textChanged.connect(fill); lst.itemActivated.connect(lambda item:d.accept())
+        run_async(self,scan,loaded,failed)
         if d.exec() and lst.currentItem() and self.maybe_save(): self.load(lst.currentItem().data(Qt.ItemDataRole.UserRole))
     def command_palette(self):
         commands=[('New',self.new),('Open',self.open),('Quick Open',self.quick_open),('Save',self.save),('Save As',self.save_as),('Preview',self.toggle_preview),('Focus mode',self.focus),('Go to heading',self.goto_heading),('Insert date / time',self.insert_datetime),('Preferences',self.prefs)]
@@ -829,28 +853,26 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         self.previewing=not self.previewing; self.stack.setCurrentIndex(1 if self.previewing else 0)
         self.preview_btn.setProperty('active',self.previewing); self.preview_btn.style().unpolish(self.preview_btn); self.preview_btn.style().polish(self.preview_btn)
         self.update_preview(); self.update_line_highlight(); self.cursor_changed(); target=(self.preview if self.previewing else self.editor); QTimer.singleShot(0,lambda:target.verticalScrollBar().setValue(int(target.verticalScrollBar().maximum()*ratio))); target.setFocus()
-    def update_preview(self):
-        if not (hasattr(self,'preview') and self.previewing):
-            return
-        # Build a stable preview snapshot. QTextBrowser.setHtml() is destructive
-        # to its viewport/scroll state, so never call it again for identical
-        # content. This is especially important for long Markdown documents.
+    def preview_html(self,text):
         t=self.current_palette()
-        rendered=f"<style>body{{line-height:1.40;color:{t['fg']};background:{t['bg']};margin:0;}} a{{color:{t['accent']};}} small{{font-size:.78em;color:{t['muted']};}} kbd{{font-family:monospace;font-size:.86em;background:{t['panel']};border:1px solid {t['border']};border-radius:3px;padding:1px 4px;}} sub,sup{{font-size:.75em;}} mark{{background:{t['select']};color:{t['fg']};padding:0 2px;}} p{{margin:.16em 0 .68em;}} code{{background:{t['panel']};padding:2px 5px;border-radius:3px;}} pre{{background:{t['panel']};padding:12px 14px;margin:.55em 0 .85em;white-space:pre-wrap;}} pre code{{padding:0;background:transparent;}} blockquote{{color:{t['muted']};border-left:3px solid {t['border']};padding-left:12px;margin:.40em 0 .75em;}} h1{{font-size:1.55em;margin:1.05em 0 .38em;}} h2{{font-size:1.32em;margin:1em 0 .42em;}} h3{{font-size:1.16em;margin:.82em 0 .30em;}} h4,h5,h6{{margin:.72em 0 .28em;}} ul,ol{{margin:.25em 0 .72em;padding-left:1.55em;}} li{{margin:.10em 0;}} hr{{border:0;border-top:1px solid {t['border']};margin:.9em 0 1.05em;}}</style>"+markdown_to_html(self.editor.toPlainText())
+        return f"<style>body{{line-height:1.40;color:{t['fg']};background:{t['bg']};margin:0;}} a{{color:{t['accent']};}} small{{font-size:.78em;color:{t['muted']};}} kbd{{font-family:monospace;font-size:.86em;background:{t['panel']};border:1px solid {t['border']};border-radius:3px;padding:1px 4px;}} sub,sup{{font-size:.75em;}} mark{{background:{t['select']};color:{t['fg']};padding:0 2px;}} p{{margin:.16em 0 .68em;}} code{{background:{t['panel']};padding:2px 5px;border-radius:3px;}} pre{{background:{t['panel']};padding:12px 14px;margin:.55em 0 .85em;white-space:pre-wrap;}} pre code{{padding:0;background:transparent;}} blockquote{{color:{t['muted']};border-left:3px solid {t['border']};padding-left:12px;margin:.40em 0 .75em;}} h1{{font-size:1.55em;margin:1.05em 0 .38em;}} h2{{font-size:1.32em;margin:1em 0 .42em;}} h3{{font-size:1.16em;margin:.82em 0 .30em;}} h4,h5,h6{{margin:.72em 0 .28em;}} ul,ol{{margin:.25em 0 .72em;padding-left:1.55em;}} li{{margin:.10em 0;}} hr{{border:0;border-top:1px solid {t['border']};margin:.9em 0 1.05em;}}</style>"+markdown_to_html(text)
+    def _apply_preview_html(self,rendered):
         if getattr(self,'_preview_html',None)==rendered:
             return
-        bar=self.preview.verticalScrollBar()
-        had_preview=hasattr(self,'_preview_html')
-        old_max=bar.maximum(); old_value=bar.value()
-        ratio=(old_value/old_max) if had_preview and old_max > 0 else None
-        self.preview.setHtml(rendered)
-        self._preview_html=rendered
-        # Force QTextDocument to complete layout before a possible position
-        # restore. On the first render we intentionally do not touch the
-        # scrollbar: Qt owns it and the user can scroll the complete document.
-        self.preview.document().adjustSize()
-        if ratio is not None:
-            QTimer.singleShot(0,lambda b=bar,r=ratio:b.setValue(round(b.maximum()*r)))
+        bar=self.preview.verticalScrollBar(); had_preview=hasattr(self,'_preview_html')
+        old_max=bar.maximum(); old_value=bar.value(); ratio=(old_value/old_max) if had_preview and old_max > 0 else None
+        self.preview.setHtml(rendered); self._preview_html=rendered; self.preview.document().adjustSize()
+        if ratio is not None:QTimer.singleShot(0,lambda b=bar,r=ratio:b.setValue(round(b.maximum()*r)))
+    def update_preview(self):
+        if not (hasattr(self,'preview') and self.previewing):return
+        text=self.editor.toPlainText()
+        if len(text)>LARGE_DOCUMENT_CHARS:
+            self._preview_generation+=1; generation=self._preview_generation
+            def done(rendered):
+                if generation==self._preview_generation and self.previewing:self._apply_preview_html(rendered)
+            run_async(self,lambda:self.preview_html(text),done)
+            return
+        self._apply_preview_html(self.preview_html(text))
     def toggle_float(self):
         # Qt Tool windows are normally treated as floating by both stacking and tiling WMs.
         floating=bool(self.windowFlags() & Qt.WindowType.Tool); geo=self.geometry(); self.hide(); self.setWindowFlag(Qt.WindowType.Tool,not floating); self.setWindowFlag(Qt.WindowType.Window, floating); self.show(); self.setGeometry(geo); self.raise_(); self.activateWindow()
@@ -858,8 +880,14 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def about(self): neutral_notice(self,'About NIRUNOTE',f'NIRUNOTE {VERSION}\n\nMinimal, suckless writing for Linux.\nMarkdown-first. Keyboard-driven. Fast.\n\nby Nicklas Rudolfsson')
     def recovery_path(self): return Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'nirunote/recovery.json'
     def recover(self):
-        if self.autosave and self.dirty.text():
-            p=self.recovery_path(); p.parent.mkdir(parents=True,exist_ok=True); self.atomic_write(p,json.dumps({'text':self.editor.toPlainText(),'path':self.path},ensure_ascii=False))
+        if self.autosave and self.dirty.text() and not self._recovery_pending:
+            p=self.recovery_path(); p.parent.mkdir(parents=True,exist_ok=True); text=self.editor.toPlainText(); path=self.path; self._recovery_pending=True
+            payload=json.dumps({'text':text,'path':path},ensure_ascii=False)
+            def write():
+                self.atomic_write(p,payload)
+            def done(_):self._recovery_pending=False
+            def failed(_):self._recovery_pending=False
+            run_async(self,write,done,failed)
     def clear_recovery(self):
         try:self.recovery_path().unlink(missing_ok=True)
         except OSError:pass

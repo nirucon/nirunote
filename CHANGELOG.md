@@ -40,6 +40,9 @@
 
 ## Unreleased
 
+- Move spell-dictionary probing, Quick Open scanning, recovery writes and large
+  Preview rendering off the GUI thread, with cancellation-by-generation and
+  explicit large-document load limits.
 - Added conditional Follow NIRUX detection and live theme updates without
   changing the default on systems where NIRUX is absent.
 - Centralized theme palette resolution; unknown theme names now fall back to
