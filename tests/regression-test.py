@@ -297,6 +297,47 @@ def t4_spelling_status_is_readable():
     dispose(w)
 
 
+@test
+def u1_modified_follows_undo():
+    w = window()
+    w.load(str(fixture('undo.md')))
+    spin(0.5)
+    doc = w.editor.document()
+    assert not doc.isModified() and not w.dirty.text()
+    w.editor.insertPlainText('typed ')
+    spin(0.3)
+    assert doc.isModified() and w.dirty.text() == '●', 'edit not marked'
+    assert w.stat_left.text().startswith('Modified'), w.stat_left.text()
+    spin(2.4)
+    assert recovery_file().exists(), 'recovery not written after edit'
+    w.editor.undo()
+    spin(0.3)
+    assert not doc.isModified() and not w.dirty.text(), 'undo to the saved text must clear the marker'
+    assert w.stat_left.text().startswith('Saved'), w.stat_left.text()
+    assert not recovery_file().exists(), 'recovery kept after undo to saved text'
+    w.editor.redo()
+    assert w.dirty.text() == '●'
+    assert w.save()
+    assert not w.dirty.text()
+    w.editor.undo()
+    assert w.dirty.text() == '●', 'undo past the save point must mark modified'
+    w.editor.redo()
+    assert not w.dirty.text(), 'redo back to the save point must clear the marker'
+    # Replace All is a real, undoable edit.
+    w.find_input.setText('text')
+    w.replace_input.setText('words')
+    w.replace_all()
+    assert 'words' in w.editor.toPlainText() and w.dirty.text() == '●'
+    w.editor.undo()
+    assert 'words' not in w.editor.toPlainText() and not w.dirty.text()
+    # New from clipboard and recovered text count as unsaved.
+    w.reset_doc('clip text', 'Clipboard.md')
+    assert w.dirty.text() == '●'
+    w.reset_doc()
+    assert not w.dirty.text()
+    dispose(w)
+
+
 TMP.cleanup()
 print(f'NIRUNOTE regression tests: OK ({len(PASSED)} tests)', flush=True)
 sys.exit(0)

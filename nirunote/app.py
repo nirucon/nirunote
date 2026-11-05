@@ -278,7 +278,7 @@ class Main(QMainWindow):
         self.preview_host=QWidget(); ph=QHBoxLayout(self.preview_host); ph.setContentsMargins(24,20,24,0); ph.setSpacing(0); ph.addStretch(); self.preview=QTextBrowser(); self.preview.setAccessibleName('Markdown preview'); self.preview.setOpenExternalLinks(False); self.preview.anchorClicked.connect(self.open_preview_link); self.preview.setFrameStyle(0); ph.addWidget(self.preview,1); ph.addStretch()
         self.stack.addWidget(self.editor_host); self.stack.addWidget(self.preview_host); self.v.addWidget(self.stack,1)
         self.status=QWidget(); self.status.setAccessibleName('Document status'); sh=QHBoxLayout(self.status); sh.setContentsMargins(14,5,14,7); self.stat_left=QLabel('Saved · Markdown · 0 words · 0 chars'); self.stat_left.setAccessibleName('Document statistics'); self.stat_right=QLabel('Ln 1, Col 1'); self.stat_right.setAccessibleName('Cursor position'); self.stat_spell=QLabel('Spelling: off'); self.stat_spell.setAccessibleName('Spelling status, click for spelling settings'); self.stat_spell.setToolTip('Spelling settings'); self.stat_spell.setCursor(Qt.CursorShape.PointingHandCursor); self.stat_spell.mousePressEvent=lambda e:self.prefs('spell'); sh.addWidget(self.stat_left); sh.addSpacing(10); sh.addWidget(self.stat_spell); sh.addStretch(); sh.addWidget(self.stat_right); self.v.addWidget(self.status)
-        self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setAccessibleName('Find text'); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setAccessibleName('Replace text'); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(140); self.preview_timer.timeout.connect(self.update_preview); self._preview_generation=0; self.editor.textChanged.connect(self.changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
+        self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setAccessibleName('Find text'); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setAccessibleName('Replace text'); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(140); self.preview_timer.timeout.connect(self.update_preview); self._preview_generation=0; self.editor.textChanged.connect(self.changed); self.editor.document().modificationChanged.connect(self.modification_changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
         self.esc_shortcut=QShortcut(QKeySequence('Escape'),self); self.esc_shortcut.activated.connect(lambda:self.set_focus(False) if self.focused else None)
         self.build_menu(); self.apply_theme(); self.configure_theme_watcher(); self.apply_editor_options(); recovered=self.load_recovery();
         if not recovered and not skip_session and self.restore_last_document and self.last_document and Path(self.last_document).is_file(): self.load(self.last_document, quiet=True)
@@ -433,7 +433,7 @@ class Main(QMainWindow):
         try: mt=p.stat().st_mtime_ns
         except OSError:return
         if self._external_mtime==mt:return
-        if not self.dirty.text(): self.load(self.path); return
+        if not self.is_modified(): self.load(self.path); return
         self._external_prompt=True
         box=NeutralMessageBox(self,'File changed on disk','This file changed outside NIRUNOTE.'); reloadb=box.addButton('Reload',QMessageBox.ButtonRole.ActionRole); keepb=box.addButton('Keep mine',QMessageBox.ButtonRole.AcceptRole); copyb=box.addButton('Save copy…',QMessageBox.ButtonRole.ActionRole); box.addButton('Cancel',QMessageBox.ButtonRole.RejectRole); box.exec(); clicked=box.clickedButton(); self._external_prompt=False
         if clicked==reloadb: self.load(self.path)
@@ -555,6 +555,27 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def toggle_line(self): self.highlight_line=not self.highlight_line; self.save_settings(); self.update_line_highlight(); self.line_action.setChecked(self.highlight_line)
     def save_settings(self):
         for k,v in [('theme',self.theme),('format',self.default_format),('font_size',self.font_size),('autosave',self.autosave),('restore',self.restore),('typewriter',self.typewriter),('word_wrap',self.word_wrap),('highlight_line',self.highlight_line),('writing_width',self.writing_width),('spell_enabled',self.spell_enabled),('spell_language',self.spell_language),('save_folder_mode',self.save_folder_mode),('default_save_folder',self.default_save_folder),('last_save_folder',self.last_save_folder),('last_open_folder',self.last_open_folder),('restore_last_document',self.restore_last_document),('show_reading_time',self.show_reading_time),('last_document',self.last_document)]: self.settings.setValue(k,v)
+    def is_modified(self):
+        # The document's own modification state is the single source of truth:
+        # it is set by real edits only and cleared again when Undo/Redo returns
+        # to the saved revision.
+        return self.editor.document().isModified()
+
+    def set_modified(self,modified):
+        self.editor.document().setModified(modified)
+        # setPlainText() on an empty document can emit modificationChanged(True)
+        # without a matching False later; always resync from the document.
+        self.modification_changed(self.editor.document().isModified())
+
+    def modification_changed(self,_modified=None):
+        modified=self.is_modified()
+        self.dirty.setText('●' if modified else '')
+        self.dirty.setToolTip('Unsaved changes' if modified else '')
+        if not modified and not self._loading:
+            # Undo back to the saved text: the file on disk already holds it.
+            self.clear_recovery()
+        if hasattr(self,'stat_spell'): self.update_document_stats()
+
     def rehighlight(self):
         # QSyntaxHighlighter.rehighlight() re-applies formats through the
         # document, which emits contentsChanged/textChanged although no text
@@ -571,7 +592,6 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         # preview rendering only happens while Preview is actually visible.
         self.spell_deferred=True
         if not self._loading:
-            self.dirty.setText('●')
             self._text_generation+=1
             self.schedule_recovery()
         self.stats_timer.start()
@@ -589,7 +609,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         words=len(txt.split())
         read=(f' · {max(1,(words+219)//220)} min' if self.show_reading_time and words else '')
         ro=(' · READ ONLY' if self.path and Path(self.path).exists() and not os.access(self.path,os.W_OK) else '')
-        state='Modified' if self.dirty.text() else 'Saved'
+        state='Modified' if self.is_modified() else 'Saved'
         theme='NIRUX' if self.theme=='Follow NIRUX' else self.theme.capitalize()
         recovered=' · RECOVERED' if self.recovered else ''
         self.stat_left.setText(f'{state} · {theme} · '+(('Markdown' if self.current_ext() in ('md','markdown') else 'Text'))+f' · {words} words · {chars} chars'+read+ro+recovered)
@@ -628,12 +648,12 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         sel=QTextEdit.ExtraSelection(); sel.format.setBackground(QColor(self.current_palette()['line'])); sel.format.setProperty(QTextFormat.Property.FullWidthSelection,True); sel.cursor=self.editor.textCursor(); sel.cursor.clearSelection(); self.editor.setExtraSelections([sel])
     def current_ext(self): return (Path(self.path).suffix.lower().lstrip('.') if self.path else self.default_format)
     def maybe_save(self):
-        if not self.dirty.text(): return True
+        if not self.is_modified(): return True
         r=neutral_unsaved(self)
         if r=='save': return self.save()
         return r=='discard'
     def reset_doc(self,text='',name=None):
-        self.recovered=False; self._loading=True; self.path=None; self.editor.setPlainText(text); self._loading=False; self.title.setText(name or 'Untitled.'+self.default_format); self.dirty.setText('●' if text else ''); self._text_generation+=1
+        self.recovered=False; self._loading=True; self.path=None; self.editor.setPlainText(text); self._loading=False; self.title.setText(name or 'Untitled.'+self.default_format); self.set_modified(bool(text)); self._text_generation+=1
         if text: self.schedule_recovery()
         self.editor.setFocus(); self.cursor_changed(); self.update_file_actions()
     def new(self):
@@ -654,7 +674,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
             path=Path(p); size=path.stat().st_size
             if size>MAX_LOAD_BYTES: raise RuntimeError(f'Document is too large ({size} bytes).')
             raw=path.read_bytes(); self.had_bom=raw.startswith(b'\xef\xbb\xbf'); text=raw.decode('utf-8-sig'); self.line_ending='\r\n' if b'\r\n' in raw else '\n'
-            self._loading=True; self.editor.setPlainText(text); self._loading=False; self.path=str(path); self.title.setText(path.name); self.dirty.setText(''); self.clear_recovery(); self.add_recent(path); self.watch_current(); self.last_document=self.path; self.save_settings(); self.update_document_stats()
+            self._loading=True; self.editor.setPlainText(text); self._loading=False; self.path=str(path); self.title.setText(path.name); self.set_modified(False); self.clear_recovery(); self.add_recent(path); self.watch_current(); self.last_document=self.path; self.save_settings(); self.update_document_stats()
             pos=int(self.settings.value('cursor/'+str(path.resolve()),0)); c=self.editor.textCursor(); c.setPosition(min(pos,len(text))); self.editor.setTextCursor(c); self.cursor_changed(); self.editor.setFocus(); self.update_file_actions()
         except Exception as e:
             self._loading=False
@@ -663,7 +683,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if not self.path: return self.save_as()
         try:
             self.snapshot(); self._ignore_watch=True; self.atomic_write(self.path,self.editor.toPlainText()); self._ignore_watch=False
-            self.dirty.setText(''); self.recovered=False; self.clear_recovery(); self.add_recent(self.path); self.last_document=self.path; self.last_save_folder=str(Path(self.path).parent); self.save_settings(); self.watch_current(); self.update_file_actions(); return True
+            self.set_modified(False); self.recovered=False; self.clear_recovery(); self.add_recent(self.path); self.last_document=self.path; self.last_save_folder=str(Path(self.path).parent); self.save_settings(); self.watch_current(); self.update_file_actions(); return True
         except Exception as e: neutral_notice(self,'Save failed',str(e)); return False
     def save_as(self):
         ext='.md' if self.default_format=='md' else '.txt'; base=Path(self.default_save_folder).expanduser() if self.save_folder_mode=='custom' else Path(self.last_save_folder).expanduser(); base=base if base.is_dir() else (Path.home()/'Documents' if (Path.home()/'Documents').is_dir() else Path.home()); p,_=QFileDialog.getSaveFileName(self,'Save as',str(base/self.suggested_filename()),'Markdown (*.md *.markdown);;Text (*.txt)')
@@ -715,7 +735,12 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def replace_all(self):
         q=self.find_input.text()
         if not q:return
-        text=self.editor.toPlainText(); flags=0 if self.case_box.isChecked() else re.I; pat=re.escape(q); pat=(r'\b'+pat+r'\b') if self.word_box.isChecked() else pat; self.editor.setPlainText(re.sub(pat,lambda m:self.replace_input.text(),text,flags=flags))
+        text=self.editor.toPlainText(); flags=0 if self.case_box.isChecked() else re.I; pat=re.escape(q); pat=(r'\b'+pat+r'\b') if self.word_box.isChecked() else pat
+        new=re.sub(pat,lambda m:self.replace_input.text(),text,flags=flags)
+        if new==text: return
+        # One undoable edit instead of setPlainText(), which would reset the
+        # undo stack and mark the document as saved.
+        c=self.editor.textCursor(); c.beginEditBlock(); c.select(QTextCursor.SelectionType.Document); c.insertText(new); c.endEditBlock()
     def wrap_markdown(self,left,right):
         c=self.editor.textCursor(); selected=c.selectedText().replace('\u2029','\n')
         if selected: c.insertText(left+selected+right)
@@ -809,7 +834,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if not self.recovery_deadline.isActive(): self.recovery_deadline.start()
     def recover(self,sync=False):
         self.recovery_debounce.stop(); self.recovery_deadline.stop()
-        if not (self.autosave and self.dirty.text()) or self._text_generation==self._recovery_generation: return
+        if not (self.autosave and self.is_modified()) or self._text_generation==self._recovery_generation: return
         if self._recovery_pending and not sync:
             self._recovery_again=True; return
         generation=self._text_generation; epoch=self.recovery_store.epoch
