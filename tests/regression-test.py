@@ -582,6 +582,25 @@ def restore_last_document_on_start():
         settings.sync()
 
 
+@test
+def follow_nirux_tracks_theme_changes():
+    kitty = Path(os.environ['XDG_CONFIG_HOME']) / 'nirux' / 'theme' / 'kitty.conf'
+    kitty.parent.mkdir(parents=True, exist_ok=True)
+    kitty.write_text('background #101010\nforeground #eeeeee\n', encoding='utf-8')
+    w = window()
+    w.set_theme('Follow NIRUX')
+    assert w.current_palette()['bg'] == '#101010'
+    replacement = kitty.with_suffix('.new')
+    replacement.write_text('background #203040\nforeground #f0f0f0\n', encoding='utf-8')
+    replacement.replace(kitty)
+    spin(1.5)
+    assert w.current_palette()['bg'] == '#203040', 'cached palette not refreshed after a NIRUX theme change'
+    assert '#203040' in w.styleSheet()
+    w.set_theme('dark')
+    kitty.unlink()
+    dispose(w)
+
+
 TMP.cleanup()
 print(f'NIRUNOTE regression tests: OK ({len(PASSED)} tests)', flush=True)
 sys.exit(0)
