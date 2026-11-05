@@ -38,6 +38,28 @@
 
 # Changelog
 
+## 0.6.0 — 2026-11-05
+
+- Fix: opening a file (command line, Open, Recent, Quick Open, scratchpad,
+  external reload) no longer marks it modified. Root cause: highlighter
+  rehighlights emit textChanged, and the spell timer re-armed itself in a
+  loop.
+- Recovery is written only when the text changed: 2 s after the last edit,
+  at most every 10 s while typing; nothing while idle. A crash now shows
+  Restore / Discard / Compare with file, time and size difference.
+- Idle CPU: no timers while idle (0.5.0: about 13–20 % CPU in Xvfb).
+- Dirty state follows QTextDocument.isModified(): Undo back to the saved
+  text clears it; Replace All is one undoable edit.
+- Readable spelling status ("Spelling: sv", "Spelling: off",
+  "Spelling: unavailable (install hunspell-sv)"), clickable; system
+  hunspell dictionaries are found too.
+- Heading outline popup (Ctrl+Shift+O) with type-to-filter; Go to heading
+  jumps correctly with wrapped lines.
+- Fenced code blocks are highlighted in the editor (monospace, subtle
+  background).
+- Code: reformatted with ruff and split into modules; regression tests and a
+  Python 3.12/3.13/3.14 CI matrix.
+
 ## 0.5.0 — 2026-10-28
 
 - Extract the Markdown renderer and Hunspell dictionary into tested modules,

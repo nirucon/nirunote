@@ -3,7 +3,7 @@
 Minimal, keyboard-oriented Markdown editor for Linux, built with Python and PySide6.
 Designed for personal desktop workflows, especially Arch/Omarchy and Debian.
 
-**Version:** 0.5.0 — responsive NIRUX writing release. The project is a personal application, shared as-is.
+**Version:** 0.6.0 — honest, quiet editor release. The project is a personal application, shared as-is.
 
 ## Features
 
@@ -14,7 +14,8 @@ Designed for personal desktop workflows, especially Arch/Omarchy and Debian.
 - Background spell probing, recovery writes and large-document Preview rendering with a clear status line.
 - Accessibility names and keyboard-complete dialogs; exact saved/recovered state remains visible.
 - Local spell checking with Hunspell when installed and a dictionary is available.
-- Recovery state, atomic saves, external file-change notification.
+- Recovery snapshots written only after real edits (about 2 s after typing stops, at most every 10 s), with a Restore / Discard / Compare prompt after a crash; atomic saves; external file-change notification.
+- Heading outline (Ctrl+Shift+O) with type-to-filter, and monospace highlighting of fenced code blocks.
 
 ## Install
 
@@ -39,7 +40,10 @@ python3 nirunote/app.py
 python3 -m compileall -q nirunote gui-smoke-test.py
 python3 nirunote/app.py --core-self-test
 QT_QPA_PLATFORM=offscreen python3 gui-smoke-test.py
+QT_QPA_PLATFORM=offscreen python3 tests/regression-test.py
 ```
+
+Development formatting uses `ruff format` (settings in `pyproject.toml`); ruff is not a runtime dependency.
 
 The offscreen smoke test does not substitute for real Wayland/Hyprland GUI testing. In particular, test Preview scrolling through long documents before publishing a release.
 
