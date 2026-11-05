@@ -1,13 +1,22 @@
 name: Python checks
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
 jobs:
   syntax-and-core:
+    name: checks (Python ${{ matrix.python-version }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.13 is Debian 13's Python; 3.12 is the previous CI baseline;
+        # 3.14 matches current Arch and Void.
+        python-version: ['3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
       - name: Install Qt system dependencies
         run: |
           sudo apt-get update

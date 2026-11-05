@@ -15,7 +15,7 @@ for filename,pattern in checks.items():
     match=re.search(pattern,(root/filename).read_text(),re.M)
     if not match or match.group(1)!=version:
         errors.append(f'{filename}: expected {version}, got {match.group(1) if match else "missing"}')
-for folder in ('nirunote','scripts'):
+for folder in ('nirunote','scripts','tests'):
     for path in (root/folder).rglob('*'):
         if path.is_file() and path.suffix in ('.py','.sh'):
             for line_no,line in enumerate(path.read_text().splitlines(),1):
