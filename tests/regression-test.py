@@ -557,6 +557,25 @@ def u4_code_blocks_are_highlighted():
     dispose(w)
 
 
+@test
+def restore_last_document_on_start():
+    doc = fixture('last.md', '# Last\n\nreopened\n')
+    settings = mod.QSettings('NIRU', 'NIRUNOTE')
+    settings.setValue('restore_last_document', True)
+    settings.setValue('last_document', str(doc))
+    settings.sync()
+    try:
+        w = mod.Main()
+        w.show()
+        assert w.path == str(doc) and 'reopened' in w.editor.toPlainText(), 'last document not restored'
+        assert str(doc) in w.watcher.files(), 'restored document is not watched for external changes'
+        assert_clean(w, 'restore last document')
+        dispose(w)
+    finally:
+        settings.setValue('restore_last_document', False)
+        settings.sync()
+
+
 TMP.cleanup()
 print(f'NIRUNOTE regression tests: OK ({len(PASSED)} tests)', flush=True)
 sys.exit(0)

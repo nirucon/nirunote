@@ -895,6 +895,19 @@ class Main(QMainWindow):
         self.preview_timer.setSingleShot(True)
         self.preview_timer.setInterval(140)
         self.preview_timer.timeout.connect(self.update_preview)
+        # Created before any load(): load() and changed() use them.
+        # Recovery is event driven: a write is scheduled RECOVERY_DEBOUNCE_MS
+        # after the last real edit, and at most RECOVERY_MAX_DELAY_MS after the
+        # first unsaved edit while typing continues. Nothing is written when
+        # the text generation has not changed since the last recovery write.
+        self.recovery_debounce = QTimer(self)
+        self.recovery_debounce.setSingleShot(True)
+        self.recovery_debounce.setInterval(RECOVERY_DEBOUNCE_MS)
+        self.recovery_debounce.timeout.connect(self.recover)
+        self.recovery_deadline = QTimer(self)
+        self.recovery_deadline.setSingleShot(True)
+        self.recovery_deadline.setInterval(RECOVERY_MAX_DELAY_MS)
+        self.recovery_deadline.timeout.connect(self.recover)
         self._preview_generation = 0
         self.editor.textChanged.connect(self.changed)
         self.editor.document().modificationChanged.connect(self.modification_changed)
@@ -913,18 +926,6 @@ class Main(QMainWindow):
             and Path(self.last_document).is_file()
         ):
             self.load(self.last_document, quiet=True)
-        # Recovery is event driven: a write is scheduled RECOVERY_DEBOUNCE_MS
-        # after the last real edit, and at most RECOVERY_MAX_DELAY_MS after the
-        # first unsaved edit while typing continues. Nothing is written when
-        # the text generation has not changed since the last recovery write.
-        self.recovery_debounce = QTimer(self)
-        self.recovery_debounce.setSingleShot(True)
-        self.recovery_debounce.setInterval(RECOVERY_DEBOUNCE_MS)
-        self.recovery_debounce.timeout.connect(self.recover)
-        self.recovery_deadline = QTimer(self)
-        self.recovery_deadline.setSingleShot(True)
-        self.recovery_deadline.setInterval(RECOVERY_MAX_DELAY_MS)
-        self.recovery_deadline.timeout.connect(self.recover)
         QTimer.singleShot(0, self.editor.setFocus)
 
     def paste_plain(self):
