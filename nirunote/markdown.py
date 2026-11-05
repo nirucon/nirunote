@@ -106,3 +106,22 @@ def markdown_to_html(s):
     if in_code: out.append('<pre><code>'+html.escape('\n'.join(code))+'</code></pre>')
     flush_paragraph(); close_list()
     return '\n'.join(out)
+
+
+HEADING_RE = re.compile(r'^(#{1,6})\s+(.+?)\s*#*\s*$')
+
+
+def extract_headings(text):
+    """Return [(line_number, level, title)] for ATX headings outside code fences."""
+    headings = []
+    in_code = False
+    for number, line in enumerate(text.split('\n')):
+        if line.startswith('```'):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        match = HEADING_RE.match(line)
+        if match and match.group(2).strip('# '):
+            headings.append((number, len(match.group(1)), match.group(2).strip()))
+    return headings

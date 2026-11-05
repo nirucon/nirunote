@@ -441,6 +441,43 @@ def u2_recovery_prompt():
         leftover.unlink()
 
 
+@test
+def u3_outline():
+    from markdown import extract_headings
+    text = '# One\n\npara\n## Two ##\n```\n# not a heading\n```\n### Three\n#nospace\n######  Six\n'
+    assert extract_headings(text) == [(0, 1, 'One'), (3, 2, 'Two'), (7, 3, 'Three'), (9, 6, 'Six')], extract_headings(text)
+    assert extract_headings('') == []
+    w = window()
+    w.word_wrap = True
+    w.apply_editor_options()
+    long_line = 'word ' * 400
+    w.editor.setPlainText('# Start\n' + long_line + '\n## Target heading\nbody\n## Other\n')
+
+    def filter_and_enter(dialog):
+        assert isinstance(dialog, mod.OutlineDialog), dialog
+        assert dialog.list.count() == 3
+        dialog.search.setText('targ')
+        assert dialog.list.count() == 1, dialog.list.count()
+        dialog.search.returnPressed.emit()
+    answer_modal(filter_and_enter)
+    w.outline()
+    assert w.editor.textCursor().blockNumber() == 2, w.editor.textCursor().blockNumber()
+    # Arrow keys in the filter move the selection.
+    from PySide6.QtGui import QKeyEvent
+
+    def arrow_down(dialog):
+        QApplication.sendEvent(dialog.search, QKeyEvent(QEvent.Type.KeyPress, mod.Qt.Key.Key_Down, mod.Qt.KeyboardModifier.NoModifier))
+        assert dialog.list.currentRow() == 1, dialog.list.currentRow()
+        dialog.jump()
+    answer_modal(arrow_down)
+    w.outline()
+    assert w.editor.textCursor().blockNumber() == 2
+    shortcuts = {a.shortcut().toString() for a in w.actions()}
+    assert 'Ctrl+Shift+O' in shortcuts, shortcuts
+    w.set_modified(False)
+    dispose(w)
+
+
 TMP.cleanup()
 print(f'NIRUNOTE regression tests: OK ({len(PASSED)} tests)', flush=True)
 sys.exit(0)

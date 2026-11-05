@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 import os, sys, json, html, re, tempfile, time, subprocess, shutil, threading
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer, QSettings, QUrl, QSize, QFileSystemWatcher, QDir, Signal, QObject
+from PySide6.QtCore import Qt, QEvent, QTimer, QSettings, QUrl, QSize, QFileSystemWatcher, QDir, Signal, QObject
 from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat, QColor, QSyntaxHighlighter, QTextCursor, QTextFormat, QShortcut, QDesktopServices, QTextDocument
 try:
     from .workers import run_async
-    from .markdown import markdown_to_html, safe_link
+    from .markdown import extract_headings, markdown_to_html, safe_link
     from . import recovery as recovery_snapshot
     from .spell import HunspellDictionary, SpellResult, dictionary_candidates, spell_status_text, unavailable_hint
 except ImportError:
     sys.path.insert(0,str(Path(__file__).resolve().parent))
     from workers import run_async
-    from markdown import markdown_to_html, safe_link
+    from markdown import extract_headings, markdown_to_html, safe_link
     import recovery as recovery_snapshot
     from spell import HunspellDictionary, SpellResult, dictionary_candidates, spell_status_text, unavailable_hint
 from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit,QTextBrowser,QFileDialog,QMessageBox,QMenu,QToolButton,QLabel,QWidget,QHBoxLayout,QVBoxLayout,QDialog,QFormLayout,QComboBox,QSpinBox,QCheckBox,QDialogButtonBox,QLineEdit,QInputDialog,QStackedWidget,QFrame,QPushButton,QListWidget,QListWidgetItem)
@@ -256,6 +256,57 @@ def neutral_unsaved(parent):
     result=box.exec()
     return {1:'save',2:'discard'}.get(result,'cancel')
 
+class OutlineDialog(QDialog):
+    """Heading outline popup: type to filter, Enter jumps to the heading."""
+
+    def __init__(self, parent, headings):
+        super().__init__(parent)
+        self.headings = headings
+        self.line = None
+        self.setWindowTitle('Outline')
+        self.setAccessibleName('Outline')
+        self.resize(520, 440)
+        layout = QVBoxLayout(self)
+        self.search = QLineEdit()
+        self.search.setAccessibleName('Filter headings')
+        self.search.setPlaceholderText('Filter headings')
+        self.list = QListWidget()
+        self.list.setAccessibleName('Headings')
+        layout.addWidget(self.search)
+        layout.addWidget(self.list, 1)
+        self.search.textChanged.connect(self.fill)
+        self.search.returnPressed.connect(self.jump)
+        self.list.itemActivated.connect(lambda _item: self.jump())
+        self.search.installEventFilter(self)
+        self.fill('')
+        self.search.setFocus()
+
+    def fill(self, query):
+        self.list.clear()
+        terms = query.casefold().split()
+        for line, level, title in self.headings:
+            if all(term in title.casefold() for term in terms):
+                item = QListWidgetItem('    ' * (level - 1) + title)
+                item.setData(Qt.ItemDataRole.UserRole, line)
+                self.list.addItem(item)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+
+    def eventFilter(self, obj, event):
+        # Up/Down/PageUp/PageDown in the filter field move the selection.
+        if obj is self.search and event.type() == QEvent.Type.KeyPress and event.key() in (
+                Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp, Qt.Key.Key_PageDown):
+            QApplication.sendEvent(self.list, event)
+            return True
+        return super().eventFilter(obj, event)
+
+    def jump(self):
+        item = self.list.currentItem()
+        if item is not None:
+            self.line = item.data(Qt.ItemDataRole.UserRole)
+            self.accept()
+
+
 class CompareDialog(QDialog):
     """Read-only side-by-side view of the file on disk and the recovered text."""
 
@@ -480,19 +531,24 @@ class Main(QMainWindow):
     def insert_datetime(self):
         self.editor.insertPlainText(time.strftime('%Y-%m-%d %H:%M'))
 
+    def outline(self):
+        headings=extract_headings(self.editor.toPlainText())
+        if not headings:
+            self.stat_right.setText('No headings'); QTimer.singleShot(1500,self.cursor_changed); return
+        dialog=OutlineDialog(self,headings)
+        if dialog.exec() and dialog.line is not None: self.jump_to_line(dialog.line)
+    def jump_to_line(self,line):
+        if self.previewing: self.toggle_preview()
+        block=self.editor.document().findBlockByNumber(line)
+        if not block.isValid(): return
+        self.editor.setTextCursor(QTextCursor(block)); self.editor.centerCursor(); self.editor.setFocus()
     def goto_heading(self):
-        heads=[]
-        for i,line in enumerate(self.editor.toPlainText().splitlines()):
-            m=re.match(r'^(#{1,6})\s+(.+)$',line)
-            if m: heads.append((i,len(m.group(1)),m.group(2).strip()))
+        heads=extract_headings(self.editor.toPlainText())
         if not heads:
             self.stat_right.setText('No headings'); QTimer.singleShot(1500,self.cursor_changed); return
         labels=[('  '*(lvl-1))+title for _,lvl,title in heads]
         choice,ok=QInputDialog.getItem(self,'Go to heading','Heading:',labels,0,False)
-        if ok:
-            line=heads[labels.index(choice)][0]; c=self.editor.textCursor(); c.movePosition(QTextCursor.MoveOperation.Start)
-            c.movePosition(QTextCursor.MoveOperation.Down,QTextCursor.MoveMode.MoveAnchor,line)
-            self.editor.setTextCursor(c); self.editor.centerCursor(); self.editor.setFocus()
+        if ok: self.jump_to_line(heads[labels.index(choice)][0])
 
     def suggested_filename(self):
         text=self.editor.toPlainText()
@@ -565,7 +621,7 @@ class Main(QMainWindow):
         self.rename_action=self.act('Rename…',None,self.rename,filem); self.folder_action=self.act('Open containing folder',None,self.open_containing_folder,filem); self.path_action=self.act('Copy file path',None,self.copy_file_path,filem)
         filem.addSeparator(); self.act('Quit','Ctrl+Q',self.close,filem)
         self.act('Undo','Ctrl+Z',self.editor.undo,editm); self.act('Redo','Ctrl+Shift+Z',self.editor.redo,editm); editm.addSeparator(); self.act('Select all','Ctrl+A',self.editor.selectAll,editm); self.act('Copy all','Ctrl+Shift+C',self.copy_all,editm); self.act('Paste as plain text','Ctrl+Shift+V',self.paste_plain,editm); self.act('Duplicate line','Ctrl+Shift+D',self.duplicate_line,editm); editm.addSeparator()
-        self.act('Find…','Ctrl+F',self.find,editm); self.act('Replace…','Ctrl+H',self.replace,editm); editm.addSeparator(); self.act('Bold','Ctrl+B',lambda:self.wrap_markdown('**','**'),editm); self.act('Italic','Ctrl+I',lambda:self.wrap_markdown('*','*'),editm); self.act('Link','Ctrl+K',self.insert_link,editm); self.act('Checkbox','Ctrl+Shift+X',self.toggle_checkbox,editm); self.act('Bullet list','Ctrl+Shift+8',lambda:self.prefix_line('- '),editm); self.act('Numbered list','Ctrl+Shift+7',lambda:self.prefix_line('1. '),editm); self.act('Quote','Ctrl+Shift+.',lambda:self.prefix_line('> '),editm); editm.addSeparator(); self.act('Go to heading…','Ctrl+G',self.goto_heading,editm); self.act('Insert date / time',None,self.insert_datetime,editm)
+        self.act('Find…','Ctrl+F',self.find,editm); self.act('Replace…','Ctrl+H',self.replace,editm); editm.addSeparator(); self.act('Bold','Ctrl+B',lambda:self.wrap_markdown('**','**'),editm); self.act('Italic','Ctrl+I',lambda:self.wrap_markdown('*','*'),editm); self.act('Link','Ctrl+K',self.insert_link,editm); self.act('Checkbox','Ctrl+Shift+X',self.toggle_checkbox,editm); self.act('Bullet list','Ctrl+Shift+8',lambda:self.prefix_line('- '),editm); self.act('Numbered list','Ctrl+Shift+7',lambda:self.prefix_line('1. '),editm); self.act('Quote','Ctrl+Shift+.',lambda:self.prefix_line('> '),editm); editm.addSeparator(); self.act('Go to heading…','Ctrl+G',self.goto_heading,editm); self.act('Outline…','Ctrl+Shift+O',self.outline,editm); self.act('Insert date / time',None,self.insert_datetime,editm)
         self.act('Quick Open…','Ctrl+P',self.quick_open,filem); self.act('Command Palette…','Ctrl+Shift+P',self.command_palette,editm); self.act('Edit / Preview','Ctrl+Shift+E',self.toggle_preview,viewm); self.act('Focus mode','F11',self.focus,viewm); self.act('Toggle floating','Ctrl+Shift+F',self.toggle_float,viewm); viewm.addSeparator()
         self.wrap_action=self.act('Word wrap',None,self.toggle_wrap,viewm); self.wrap_action.setCheckable(True); self.wrap_action.setChecked(self.word_wrap)
         self.line_action=self.act('Highlight current line',None,self.toggle_line,viewm); self.line_action.setCheckable(True); self.line_action.setChecked(self.highlight_line)
@@ -899,7 +955,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         run_async(self,scan,loaded,failed)
         if d.exec() and lst.currentItem() and self.maybe_save(): self.load(lst.currentItem().data(Qt.ItemDataRole.UserRole))
     def command_palette(self):
-        commands=[('New',self.new),('Open',self.open),('Quick Open',self.quick_open),('Save',self.save),('Save As',self.save_as),('Preview',self.toggle_preview),('Focus mode',self.focus),('Go to heading',self.goto_heading),('Insert date / time',self.insert_datetime),('Preferences',self.prefs)]
+        commands=[('New',self.new),('Open',self.open),('Quick Open',self.quick_open),('Save',self.save),('Save As',self.save_as),('Preview',self.toggle_preview),('Focus mode',self.focus),('Go to heading',self.goto_heading),('Outline',self.outline),('Insert date / time',self.insert_datetime),('Preferences',self.prefs)]
         d=QDialog(self); d.setWindowTitle('Command Palette'); d.setAccessibleName('Command Palette'); d.resize(480,360); v=QVBoxLayout(d); search=QLineEdit(); search.setAccessibleName('Command search'); search.setPlaceholderText('Type a command'); lst=QListWidget(); lst.setAccessibleName('Commands'); v.addWidget(search); v.addWidget(lst,1)
         def fill(q=''):
             lst.clear(); q=q.casefold()
