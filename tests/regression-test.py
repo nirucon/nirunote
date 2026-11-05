@@ -461,6 +461,7 @@ def u2_recovery_prompt():
     w.load(str(other))
     w.editor.insertPlainText('dropped ')
     import fileio
+
     original = fileio.neutral_unsaved
     fileio.neutral_unsaved = lambda parent: 'discard'
     try:

@@ -132,6 +132,31 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.v = QVBoxLayout(root)
         self.v.setContentsMargins(0, 0, 0, 0)
         self.v.setSpacing(0)
+        self._build_header()
+        self._build_pages()
+        self._build_status_bar()
+        self._build_find_bar()
+        self.setCentralWidget(root)
+        self.high = MarkdownHighlighter(self.editor.document(), self)
+        self._create_timers()
+        self.esc_shortcut = QShortcut(QKeySequence('Escape'), self)
+        self.esc_shortcut.activated.connect(lambda: self.set_focus(False) if self.focused else None)
+        self.build_menu()
+        self.apply_theme()
+        self.configure_theme_watcher()
+        self.apply_editor_options()
+        self.read_startup_recovery()
+        if (
+            not skip_session
+            and self.restore_last_document
+            and self.last_document
+            and Path(self.last_document).is_file()
+        ):
+            self.load(self.last_document, quiet=True)
+        QTimer.singleShot(0, self.editor.setFocus)
+
+    def _build_header(self):
+        """Top bar: menu, title, copy/preview/focus/save buttons, dirty marker."""
         self.top = QWidget()
         h = QHBoxLayout(self.top)
         h.setContentsMargins(12, 7, 12, 7)
@@ -174,6 +199,9 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         h.addWidget(self.save_btn)
         h.addWidget(self.dirty)
         self.v.addWidget(self.top)
+
+    def _build_pages(self):
+        """Editor and Preview pages in a stacked widget."""
         self.stack = QStackedWidget()
         self.editor_host = QWidget()
         eh = QHBoxLayout(self.editor_host)
@@ -202,6 +230,9 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.stack.addWidget(self.editor_host)
         self.stack.addWidget(self.preview_host)
         self.v.addWidget(self.stack, 1)
+
+    def _build_status_bar(self):
+        """Status line: document state, spelling and cursor position."""
         self.status = QWidget()
         self.status.setAccessibleName('Document status')
         sh = QHBoxLayout(self.status)
@@ -221,6 +252,9 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         sh.addStretch()
         sh.addWidget(self.stat_right)
         self.v.addWidget(self.status)
+
+    def _build_find_bar(self):
+        """Find/replace bar (hidden until Ctrl+F / Ctrl+H)."""
         self.findbar = QWidget()
         fb = QHBoxLayout(self.findbar)
         fb.setContentsMargins(14, 5, 14, 7)
@@ -254,8 +288,9 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         allb.clicked.connect(self.replace_all)
         closeb.clicked.connect(self.hide_find)
         self.find_input.returnPressed.connect(lambda: self.find_next(False))
-        self.setCentralWidget(root)
-        self.high = MarkdownHighlighter(self.editor.document(), self)
+
+    def _create_timers(self):
+        """Debounce timers and editor signal connections."""
         self.spell_timer = QTimer(self)
         self.spell_timer.setSingleShot(True)
         self.spell_timer.setInterval(350)
@@ -285,21 +320,6 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.editor.textChanged.connect(self.changed)
         self.editor.document().modificationChanged.connect(self.modification_changed)
         self.editor.cursorPositionChanged.connect(self.cursor_changed)
-        self.esc_shortcut = QShortcut(QKeySequence('Escape'), self)
-        self.esc_shortcut.activated.connect(lambda: self.set_focus(False) if self.focused else None)
-        self.build_menu()
-        self.apply_theme()
-        self.configure_theme_watcher()
-        self.apply_editor_options()
-        self.read_startup_recovery()
-        if (
-            not skip_session
-            and self.restore_last_document
-            and self.last_document
-            and Path(self.last_document).is_file()
-        ):
-            self.load(self.last_document, quiet=True)
-        QTimer.singleShot(0, self.editor.setFocus)
 
     def paste_plain(self):
         self.editor.insertPlainText(QApplication.clipboard().text())
