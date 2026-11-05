@@ -26,6 +26,8 @@ except ImportError:
 APP='NIRUNOTE'; VERSION='0.5.0'
 LARGE_DOCUMENT_CHARS=50000
 MAX_LOAD_BYTES=20*1024*1024
+RECOVERY_DEBOUNCE_MS=2000
+RECOVERY_MAX_DELAY_MS=10000
 THEMES={
 'dark': {'bg':'#090909','fg':'#ededed','muted':'#858585','panel':'#141414','border':'#292929','accent':'#bdbdbd','select':'#333333','line':'#0b0b0b','md':'#6f6f6f'},
 'light': {'bg':'#f7f7f4','fg':'#181818','muted':'#777777','panel':'#ecece8','border':'#d2d2cc','accent':'#444444','select':'#dcdcd6','line':'#f6f6f2','md':'#9a9a92'},
@@ -34,6 +36,36 @@ WIDTHS={'Narrow':720,'Normal':900,'Wide':1100,'Full width':16777215}
 
 def palette_for(theme):
     return dict(THEMES.get(theme,THEMES['dark']))
+
+class RecoveryStore:
+    """Serializes recovery writes (worker thread) against clears (GUI thread).
+
+    A write scheduled before a clear must not resurrect a recovery file after
+    the document was saved or discarded, so every clear bumps an epoch and a
+    write only lands when its epoch is still current.
+    """
+
+    def __init__(self, write):
+        self._write = write
+        self._lock = threading.Lock()
+        self.epoch = 0
+
+    def write(self, path, payload, epoch):
+        with self._lock:
+            if epoch != self.epoch:
+                return False
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._write(path, payload)
+            return True
+
+    def clear(self, path):
+        with self._lock:
+            self.epoch += 1
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
 
 class MarkdownHighlighter(QSyntaxHighlighter):
     def __init__(self, doc, window): super().__init__(doc); self.window=window
@@ -225,7 +257,7 @@ def neutral_unsaved(parent):
 class Main(QMainWindow):
     def __init__(self,skip_session=False):
         super().__init__(); self.settings=QSettings('NIRU','NIRUNOTE'); self.path=None; self.previewing=False; self.focused=False; self._loading=False; self._formatting=0; self._external_mtime=None; self._ignore_watch=False
-        self.spell_enabled=self.settings.value('spell_enabled',True,type=bool); self.spell_language=self.settings.value('spell_language','sv_SE'); self.spell_dict=None; self.spell_deferred=False; self._spell_generation=0; self._recovery_pending=False; self.init_spell();
+        self.spell_enabled=self.settings.value('spell_enabled',True,type=bool); self.spell_language=self.settings.value('spell_language','sv_SE'); self.spell_dict=None; self.spell_deferred=False; self._spell_generation=0; self._recovery_pending=False; self._recovery_again=False; self._text_generation=0; self._recovery_generation=0; self.recovery_store=RecoveryStore(lambda path,payload:self.atomic_write(path,payload)); self.init_spell();
         saved_theme=self.settings.value('theme',''); self.theme=saved_theme or ('Follow NIRUX' if nirux_available() else 'dark'); self.default_format=self.settings.value('format','md'); self.font_size=int(self.settings.value('font_size',17)); self.autosave=self.settings.value('autosave',True,type=bool); self.restore=self.settings.value('restore',True,type=bool); self.typewriter=self.settings.value('typewriter',False,type=bool); self.word_wrap=self.settings.value('word_wrap',True,type=bool); self.highlight_line=self.settings.value('highlight_line',True,type=bool); self.writing_width=self.settings.value('writing_width','Normal'); self.recent=self.settings.value('recent',[],type=list) or []; self.save_folder_mode=self.settings.value('save_folder_mode','last'); self.default_save_folder=self.settings.value('default_save_folder',str(Path.home()/'Documents')); self.last_save_folder=self.settings.value('last_save_folder',str(Path.home()/'Documents')); self.last_open_folder=self.settings.value('last_open_folder',str(Path.home())); self.restore_last_document=self.settings.value('restore_last_document',False,type=bool); self.show_reading_time=self.settings.value('show_reading_time',False,type=bool); self.last_document=self.settings.value('last_document',''); self.line_ending='\n'; self.had_bom=False; self._external_prompt=False; self.recovered=False
         self.setWindowTitle(APP); self.setMinimumSize(560,400); self.setAcceptDrops(True); self.watcher=QFileSystemWatcher(self); self.watcher.fileChanged.connect(self.external_file_changed); self.theme_watcher=ThemeWatcher(self); self.theme_watcher.changed.connect(self._nirux_theme_changed)
         geo=self.settings.value('geometry'); self.resize(1000,760)
@@ -250,7 +282,13 @@ class Main(QMainWindow):
         self.esc_shortcut=QShortcut(QKeySequence('Escape'),self); self.esc_shortcut.activated.connect(lambda:self.set_focus(False) if self.focused else None)
         self.build_menu(); self.apply_theme(); self.configure_theme_watcher(); self.apply_editor_options(); recovered=self.load_recovery();
         if not recovered and not skip_session and self.restore_last_document and self.last_document and Path(self.last_document).is_file(): self.load(self.last_document, quiet=True)
-        self.timer=QTimer(self); self.timer.timeout.connect(self.recover); self.timer.start(2500); QTimer.singleShot(0,self.editor.setFocus)
+        # Recovery is event driven: a write is scheduled RECOVERY_DEBOUNCE_MS
+        # after the last real edit, and at most RECOVERY_MAX_DELAY_MS after the
+        # first unsaved edit while typing continues. Nothing is written when
+        # the text generation has not changed since the last recovery write.
+        self.recovery_debounce=QTimer(self); self.recovery_debounce.setSingleShot(True); self.recovery_debounce.setInterval(RECOVERY_DEBOUNCE_MS); self.recovery_debounce.timeout.connect(self.recover)
+        self.recovery_deadline=QTimer(self); self.recovery_deadline.setSingleShot(True); self.recovery_deadline.setInterval(RECOVERY_MAX_DELAY_MS); self.recovery_deadline.timeout.connect(self.recover)
+        QTimer.singleShot(0,self.editor.setFocus)
     def paste_plain(self):
         self.editor.insertPlainText(QApplication.clipboard().text())
 
@@ -519,7 +557,10 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         # Keep the typing/open path cheap. Full-document work is delayed and
         # preview rendering only happens while Preview is actually visible.
         self.spell_deferred=True
-        if not self._loading: self.dirty.setText('●')
+        if not self._loading:
+            self.dirty.setText('●')
+            self._text_generation+=1
+            self.schedule_recovery()
         self.stats_timer.start()
         if self.previewing: self.preview_timer.start()
         # Loading setPlainText emits textChanged too. Do not schedule a costly
@@ -583,7 +624,9 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if r=='save': return self.save()
         return r=='discard'
     def reset_doc(self,text='',name=None):
-        self.recovered=False; self._loading=True; self.path=None; self.editor.setPlainText(text); self._loading=False; self.title.setText(name or 'Untitled.'+self.default_format); self.dirty.setText('●' if text else ''); self.editor.setFocus(); self.cursor_changed(); self.update_file_actions()
+        self.recovered=False; self._loading=True; self.path=None; self.editor.setPlainText(text); self._loading=False; self.title.setText(name or 'Untitled.'+self.default_format); self.dirty.setText('●' if text else ''); self._text_generation+=1
+        if text: self.schedule_recovery()
+        self.editor.setFocus(); self.cursor_changed(); self.update_file_actions()
     def new(self):
         if self.maybe_save(): self.clear_recovery(); self.reset_doc()
     def new_from_clipboard(self):
@@ -748,18 +791,38 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def prefs(self): Prefs(self).exec()
     def about(self): neutral_notice(self,'About NIRUNOTE',f'NIRUNOTE {VERSION}\n\nMinimal, suckless writing for Linux.\nMarkdown-first. Keyboard-driven. Fast.\n\nby Nicklas Rudolfsson')
     def recovery_path(self): return Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'nirunote/recovery.json'
-    def recover(self):
-        if self.autosave and self.dirty.text() and not self._recovery_pending:
-            p=self.recovery_path(); p.parent.mkdir(parents=True,exist_ok=True); text=self.editor.toPlainText(); path=self.path; self._recovery_pending=True
-            payload=json.dumps({'text':text,'path':path},ensure_ascii=False)
-            def write():
-                self.atomic_write(p,payload)
-            def done(_):self._recovery_pending=False
-            def failed(_):self._recovery_pending=False
-            run_async(self,write,done,failed)
+    def schedule_recovery(self):
+        if not self.autosave: return
+        self.recovery_debounce.start()
+        if not self.recovery_deadline.isActive(): self.recovery_deadline.start()
+    def recover(self,sync=False):
+        self.recovery_debounce.stop(); self.recovery_deadline.stop()
+        if not (self.autosave and self.dirty.text()) or self._text_generation==self._recovery_generation: return
+        if self._recovery_pending and not sync:
+            self._recovery_again=True; return
+        generation=self._text_generation; epoch=self.recovery_store.epoch
+        payload=json.dumps({'text':self.editor.toPlainText(),'path':self.path,'saved_at':time.time(),'app_version':VERSION},ensure_ascii=False)
+        path=self.recovery_path(); self._recovery_generation=generation
+        def write(): return self.recovery_store.write(path,payload,epoch)
+        if sync:
+            try: write()
+            except Exception: self._recovery_generation=-1
+            return
+        self._recovery_pending=True
+        def finish():
+            self._recovery_pending=False
+            if self._recovery_again:
+                self._recovery_again=False; self.recover()
+        def done(_): finish()
+        def failed(_):
+            # Retry on the next edit or deadline instead of losing the snapshot.
+            if self._recovery_generation==generation: self._recovery_generation=-1
+            finish()
+        run_async(self,write,done,failed)
     def clear_recovery(self):
-        try:self.recovery_path().unlink(missing_ok=True)
-        except OSError:pass
+        self.recovery_debounce.stop(); self.recovery_deadline.stop()
+        self._recovery_generation=self._text_generation
+        self.recovery_store.clear(self.recovery_path())
     def load_recovery(self):
         p=self.recovery_path()
         if self.restore and p.exists() and p.stat().st_size:
@@ -774,7 +837,7 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         p=e.mimeData().urls()[0].toLocalFile()
         if self.maybe_save(): self.load(p); e.acceptProposedAction()
     def closeEvent(self,e):
-        self.settings.setValue('geometry',self.saveGeometry()); self.recover();
+        self.settings.setValue('geometry',self.saveGeometry()); self.recover(sync=True);
         if self.path: self.settings.setValue('cursor/'+str(Path(self.path).resolve()),self.editor.textCursor().position()); self.last_document=self.path; self.save_settings()
         if self.maybe_save(): e.accept()
         else:e.ignore()

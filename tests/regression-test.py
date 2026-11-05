@@ -95,7 +95,8 @@ def window():
 def dispose(w):
     # Never close(): closeEvent contains interactive unsaved-changes logic.
     w.hide()
-    w.timer.stop() if hasattr(w, 'timer') else None
+    w.recovery_debounce.stop()
+    w.recovery_deadline.stop()
     w.deleteLater()
     qapp.processEvents()
     recovery_file().unlink(missing_ok=True)
@@ -159,6 +160,50 @@ def t1_real_edit_still_dirties():
     w.editor.insertPlainText('x')
     spin(0.3)
     assert w.dirty.text(), 'real edit did not mark the document modified'
+    dispose(w)
+
+
+def count_recovery_writes(w):
+    writes = []
+    original = w.atomic_write
+
+    def counting(path, text):
+        if Path(path) == recovery_file():
+            writes.append(time.monotonic())
+        return original(path, text)
+    w.atomic_write = counting
+    return writes
+
+
+@test
+def t2_recovery_written_only_after_changes():
+    w = window()
+    w.load(str(fixture('recovery.md')))
+    writes = count_recovery_writes(w)
+    spin(3.0)
+    assert writes == [], f'unchanged document wrote recovery {len(writes)} times'
+    w.editor.insertPlainText('a')
+    spin(1.0)
+    assert writes == [], 'recovery must be debounced (about 2 s after the last edit)'
+    spin(1.6)
+    assert len(writes) == 1, f'expected one debounced write, got {len(writes)}'
+    data = recovery_file().read_text(encoding='utf-8')
+    assert '"text": "a# Title' in data, data[:80]
+    # Idle while dirty: no further writes.
+    spin(6.0)
+    assert len(writes) == 1, f'idle dirty document rewrote recovery ({len(writes)} writes)'
+    # Continuous typing: the debounce keeps restarting, the 10 s deadline still writes.
+    for _ in range(24):
+        w.editor.insertPlainText('b')
+        spin(0.5)
+    assert len(writes) == 2, f'expected one deadline write while typing, got {len(writes) - 1}'
+    spin(2.6)
+    assert len(writes) == 3, 'final debounced write after typing stopped missing'
+    # Saving clears recovery and does not resurrect it.
+    assert w.save()
+    spin(2.6)
+    assert not recovery_file().exists(), 'recovery file left behind after save'
+    assert len(writes) == 3
     dispose(w)
 
 
