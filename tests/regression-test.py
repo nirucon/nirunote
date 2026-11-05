@@ -19,7 +19,7 @@ for key, sub in (('XDG_CONFIG_HOME', 'config'), ('XDG_STATE_HOME', 'state'),
     os.environ[key] = str(BASE / sub)
 Path(os.environ['HOME']).mkdir()
 
-from PySide6.QtCore import QTimer, QEventLoop  # noqa: E402
+from PySide6.QtCore import QEvent, QEventLoop, QObject, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QFileDialog  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -204,6 +204,48 @@ def t2_recovery_written_only_after_changes():
     spin(2.6)
     assert not recovery_file().exists(), 'recovery file left behind after save'
     assert len(writes) == 3
+    dispose(w)
+
+
+class TimerCounter(QObject):
+    """Counts every QTimerEvent delivered in the application (all timers, Qt's own included)."""
+    def __init__(self):
+        super().__init__()
+        self.count = 0
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Timer:
+            self.count += 1
+        return False
+
+
+def idle_timer_events(w, seconds=10.0):
+    counter = TimerCounter()
+    qapp.installEventFilter(counter)
+    spin(seconds)
+    qapp.removeEventFilter(counter)
+    # spin() itself uses one single-shot timer.
+    return counter.count - 1
+
+
+@test
+def t3_idle_has_no_periodic_timers():
+    w = window()
+    w.load(str(fixture('idle.md', '# Idle\n\n' + 'Hej hello text.\n' * 400)))
+    spin(3.0)  # let load-time work (spell probe, stats) settle
+    w.editor.clearFocus()
+    w.setFocus()
+    unfocused = idle_timer_events(w)
+    print(f'    idle timer events in 10 s without editor focus: {unfocused}')
+    assert unfocused <= 3, f'idle window fired {unfocused} timer events in 10 s'
+    # A dirty document must stay idle too once its recovery snapshot is written.
+    w.editor.setFocus()
+    w.editor.insertPlainText('x')
+    spin(2.5)
+    w.editor.clearFocus()
+    dirty = idle_timer_events(w)
+    print(f'    idle timer events in 10 s, dirty document: {dirty}')
+    assert dirty <= 3, f'dirty idle window fired {dirty} timer events in 10 s'
     dispose(w)
 
 

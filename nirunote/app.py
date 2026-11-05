@@ -488,8 +488,16 @@ class Main(QMainWindow):
         if nirux_available(): themes.append('Follow NIRUX')
         return themes
     def current_palette(self):
-        if self.theme=='Follow NIRUX':return load_nirux_palette()
-        return palette_for(self.theme)
+        # The highlighter asks for the palette once per block and the line
+        # highlight on every cursor move. "Follow NIRUX" used to re-read and
+        # parse the NIRUX theme files on each call; resolve it once per theme
+        # application instead (apply_theme() invalidates the cache, and the
+        # theme watcher calls apply_theme() when the NIRUX files change).
+        cached=getattr(self,'_palette_cache',None)
+        if cached is None or cached[0]!=self.theme:
+            palette=load_nirux_palette() if self.theme=='Follow NIRUX' else palette_for(self.theme)
+            cached=self._palette_cache=(self.theme,palette)
+        return dict(cached[1])
     def configure_theme_watcher(self):
         watcher=getattr(self,'theme_watcher',None)
         if watcher is None:return
@@ -499,6 +507,7 @@ class Main(QMainWindow):
         if self.theme=='Follow NIRUX':
             self.apply_theme(); self.update_line_highlight(); self.rehighlight()
     def apply_theme(self):
+        self._palette_cache=None
         t=self.current_palette()
         self.setStyleSheet(f'''QMainWindow,QWidget,QPlainTextEdit,QTextBrowser,QDialog{{background:{t['bg']};color:{t['fg']};}} QPlainTextEdit,QTextBrowser{{border:none;padding:30px 18px;selection-background-color:{t['select']};}} QToolButton{{background:transparent;color:{t['muted']};border:none;border-radius:5px;padding:5px 8px;}} QToolButton:hover{{background:{t['panel']};color:{t['fg']};}} QMenu{{background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};padding:6px;}} QMenu::item{{padding:7px 28px 7px 12px;border-radius:4px;}} QMenu::item:selected{{background:{t['select']};}} QMenu::separator{{height:1px;background:{t['border']};margin:5px 8px;}} QScrollBar:vertical{{background:transparent;width:4px;margin:0;}} QScrollBar::handle:vertical{{background:{t['border']};min-height:28px;border-radius:2px;}} QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}} QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}} QLabel{{color:{t['muted']};}}
 QLineEdit,QComboBox,QSpinBox{{background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};border-radius:4px;padding:6px;selection-background-color:{t['select']};selection-color:{t['fg']};}}
