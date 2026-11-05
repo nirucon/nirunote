@@ -6,11 +6,13 @@ from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat, QColor,
 try:
     from .workers import run_async
     from .markdown import markdown_to_html, safe_link
+    from . import recovery as recovery_snapshot
     from .spell import HunspellDictionary, SpellResult, dictionary_candidates, spell_status_text, unavailable_hint
 except ImportError:
     sys.path.insert(0,str(Path(__file__).resolve().parent))
     from workers import run_async
     from markdown import markdown_to_html, safe_link
+    import recovery as recovery_snapshot
     from spell import HunspellDictionary, SpellResult, dictionary_candidates, spell_status_text, unavailable_hint
 from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit,QTextBrowser,QFileDialog,QMessageBox,QMenu,QToolButton,QLabel,QWidget,QHBoxLayout,QVBoxLayout,QDialog,QFormLayout,QComboBox,QSpinBox,QCheckBox,QDialogButtonBox,QLineEdit,QInputDialog,QStackedWidget,QFrame,QPushButton,QListWidget,QListWidgetItem)
 try:
@@ -254,9 +256,119 @@ def neutral_unsaved(parent):
     result=box.exec()
     return {1:'save',2:'discard'}.get(result,'cancel')
 
+class CompareDialog(QDialog):
+    """Read-only side-by-side view of the file on disk and the recovered text."""
+
+    def __init__(self, parent, on_disk, recovered, palette):
+        super().__init__(parent)
+        self.setWindowTitle('Compare recovered text')
+        self.setAccessibleName('Compare recovered text')
+        self.setProperty('nirunoteDialog', True)
+        self.resize(1000, 640)
+        left_lines, right_lines, self.marks = recovery_snapshot.side_by_side(on_disk, recovered)
+        layout = QVBoxLayout(self)
+        columns = QHBoxLayout()
+        self.left = self._column(columns, 'On disk' if on_disk else 'On disk (empty or missing)', '\n'.join(left_lines))
+        self.right = self._column(columns, 'Recovered', '\n'.join(right_lines))
+        layout.addLayout(columns, 1)
+        changed = sum(1 for mark in self.marks if mark != ' ')
+        layout.addWidget(QLabel(f'{changed} changed line(s)' if changed else 'No differences'))
+        close_row = QHBoxLayout()
+        close_row.addStretch()
+        close = QPushButton('Close', self)
+        close.setMinimumWidth(88)
+        close.setDefault(True)
+        close.clicked.connect(self.reject)
+        close_row.addWidget(close)
+        layout.addLayout(close_row)
+        changed_bg = QColor(palette['select'])
+        for editor, side in ((self.left, '-'), (self.right, '+')):
+            selections = []
+            block = editor.document().firstBlock()
+            for mark in self.marks:
+                if mark in ('~', side):
+                    selection = QTextEdit.ExtraSelection()
+                    selection.format.setBackground(changed_bg)
+                    selection.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
+                    selection.cursor = QTextCursor(block)
+                    selections.append(selection)
+                block = block.next()
+            editor.setExtraSelections(selections)
+        # Rows are aligned, so scrolling one side scrolls the other.
+        self.left.verticalScrollBar().valueChanged.connect(self.right.verticalScrollBar().setValue)
+        self.right.verticalScrollBar().valueChanged.connect(self.left.verticalScrollBar().setValue)
+
+    def _column(self, row, title, text):
+        column = QVBoxLayout()
+        column.addWidget(QLabel(title))
+        view = QPlainTextEdit()
+        view.setReadOnly(True)
+        view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        view.setAccessibleName(title)
+        font = QFont('monospace')
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        view.setFont(font)
+        view.setPlainText(text)
+        column.addWidget(view, 1)
+        row.addLayout(column, 1)
+        return view
+
+
+class RecoveryDialog(QDialog):
+    """Restore / Discard / Compare prompt for a snapshot left by a crash."""
+
+    def __init__(self, parent, data, on_disk, palette):
+        super().__init__(parent)
+        self.data, self.on_disk, self.palette = data, on_disk, palette
+        self.choice = 'restore'
+        self.setWindowTitle('Recover unsaved text')
+        self.setAccessibleName('Recover unsaved text')
+        self.setProperty('nirunoteDialog', True)
+        self.setModal(True)
+        name, when, size = recovery_snapshot.describe(data, on_disk)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+        layout.addWidget(QLabel('NIRUNOTE found unsaved text from a session that did not close normally.'))
+        details = QFormLayout()
+        details.addRow('File', QLabel(name))
+        details.addRow('Last snapshot', QLabel(when))
+        details.addRow('Size', QLabel(size))
+        layout.addLayout(details)
+        note = QLabel('Discard keeps one backup copy (recovery-discarded.json).')
+        layout.addWidget(note)
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        self.discard_button = QPushButton('Discard', self)
+        self.compare_button = QPushButton('Compare…', self)
+        self.restore_button = QPushButton('Restore', self)
+        for button in (self.discard_button, self.compare_button, self.restore_button):
+            button.setAutoDefault(True)
+            button.setMinimumWidth(88)
+            buttons.addWidget(button)
+        layout.addLayout(buttons)
+        self.discard_button.clicked.connect(lambda: self._finish('discard'))
+        self.restore_button.clicked.connect(lambda: self._finish('restore'))
+        self.compare_button.clicked.connect(self.compare)
+        # Escape (reject) keeps the text: Restore is the non-destructive answer.
+        self.restore_button.setDefault(True)
+        self.restore_button.setFocus()
+
+    def _finish(self, choice):
+        self.choice = choice
+        self.accept()
+
+    def reject(self):
+        self.choice = 'restore'
+        super().reject()
+
+    def compare(self):
+        CompareDialog(self, self.on_disk or '', self.data['text'], self.palette).exec()
+
+
 class Main(QMainWindow):
-    def __init__(self,skip_session=False):
-        super().__init__(); self.settings=QSettings('NIRU','NIRUNOTE'); self.path=None; self.previewing=False; self.focused=False; self._loading=False; self._formatting=0; self._external_mtime=None; self._ignore_watch=False
+    def __init__(self,skip_session=False,scratchpad=False):
+        super().__init__(); self.scratchpad=scratchpad; self._startup_recovery=None; self.settings=QSettings('NIRU','NIRUNOTE'); self.path=None; self.previewing=False; self.focused=False; self._loading=False; self._formatting=0; self._external_mtime=None; self._ignore_watch=False
         self.spell_enabled=self.settings.value('spell_enabled',True,type=bool); self.spell_language=self.settings.value('spell_language','sv_SE'); self.spell_dict=None; self.spell_deferred=False; self._spell_generation=0; self._recovery_pending=False; self._recovery_again=False; self._text_generation=0; self._recovery_generation=0; self.recovery_store=RecoveryStore(lambda path,payload:self.atomic_write(path,payload)); self.init_spell();
         saved_theme=self.settings.value('theme',''); self.theme=saved_theme or ('Follow NIRUX' if nirux_available() else 'dark'); self.default_format=self.settings.value('format','md'); self.font_size=int(self.settings.value('font_size',17)); self.autosave=self.settings.value('autosave',True,type=bool); self.restore=self.settings.value('restore',True,type=bool); self.typewriter=self.settings.value('typewriter',False,type=bool); self.word_wrap=self.settings.value('word_wrap',True,type=bool); self.highlight_line=self.settings.value('highlight_line',True,type=bool); self.writing_width=self.settings.value('writing_width','Normal'); self.recent=self.settings.value('recent',[],type=list) or []; self.save_folder_mode=self.settings.value('save_folder_mode','last'); self.default_save_folder=self.settings.value('default_save_folder',str(Path.home()/'Documents')); self.last_save_folder=self.settings.value('last_save_folder',str(Path.home()/'Documents')); self.last_open_folder=self.settings.value('last_open_folder',str(Path.home())); self.restore_last_document=self.settings.value('restore_last_document',False,type=bool); self.show_reading_time=self.settings.value('show_reading_time',False,type=bool); self.last_document=self.settings.value('last_document',''); self.line_ending='\n'; self.had_bom=False; self._external_prompt=False; self.recovered=False
         self.setWindowTitle(APP); self.setMinimumSize(560,400); self.setAcceptDrops(True); self.watcher=QFileSystemWatcher(self); self.watcher.fileChanged.connect(self.external_file_changed); self.theme_watcher=ThemeWatcher(self); self.theme_watcher.changed.connect(self._nirux_theme_changed)
@@ -280,8 +392,8 @@ class Main(QMainWindow):
         self.status=QWidget(); self.status.setAccessibleName('Document status'); sh=QHBoxLayout(self.status); sh.setContentsMargins(14,5,14,7); self.stat_left=QLabel('Saved · Markdown · 0 words · 0 chars'); self.stat_left.setAccessibleName('Document statistics'); self.stat_right=QLabel('Ln 1, Col 1'); self.stat_right.setAccessibleName('Cursor position'); self.stat_spell=QLabel('Spelling: off'); self.stat_spell.setAccessibleName('Spelling status, click for spelling settings'); self.stat_spell.setToolTip('Spelling settings'); self.stat_spell.setCursor(Qt.CursorShape.PointingHandCursor); self.stat_spell.mousePressEvent=lambda e:self.prefs('spell'); sh.addWidget(self.stat_left); sh.addSpacing(10); sh.addWidget(self.stat_spell); sh.addStretch(); sh.addWidget(self.stat_right); self.v.addWidget(self.status)
         self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setAccessibleName('Find text'); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setAccessibleName('Replace text'); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(140); self.preview_timer.timeout.connect(self.update_preview); self._preview_generation=0; self.editor.textChanged.connect(self.changed); self.editor.document().modificationChanged.connect(self.modification_changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
         self.esc_shortcut=QShortcut(QKeySequence('Escape'),self); self.esc_shortcut.activated.connect(lambda:self.set_focus(False) if self.focused else None)
-        self.build_menu(); self.apply_theme(); self.configure_theme_watcher(); self.apply_editor_options(); recovered=self.load_recovery();
-        if not recovered and not skip_session and self.restore_last_document and self.last_document and Path(self.last_document).is_file(): self.load(self.last_document, quiet=True)
+        self.build_menu(); self.apply_theme(); self.configure_theme_watcher(); self.apply_editor_options(); self.read_startup_recovery()
+        if not skip_session and self.restore_last_document and self.last_document and Path(self.last_document).is_file(): self.load(self.last_document, quiet=True)
         # Recovery is event driven: a write is scheduled RECOVERY_DEBOUNCE_MS
         # after the last real edit, and at most RECOVERY_MAX_DELAY_MS after the
         # first unsaved edit while typing continues. Nothing is written when
@@ -651,7 +763,9 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if not self.is_modified(): return True
         r=neutral_unsaved(self)
         if r=='save': return self.save()
-        return r=='discard'
+        if r=='discard':
+            self.backup_discarded_text(); return True
+        return False
     def reset_doc(self,text='',name=None):
         self.recovered=False; self._loading=True; self.path=None; self.editor.setPlainText(text); self._loading=False; self.title.setText(name or 'Untitled.'+self.default_format); self.set_modified(bool(text)); self._text_generation+=1
         if text: self.schedule_recovery()
@@ -827,7 +941,10 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if section=='spell': dialog.spell.setFocus()
         dialog.exec()
     def about(self): neutral_notice(self,'About NIRUNOTE',f'NIRUNOTE {VERSION}\n\nMinimal, suckless writing for Linux.\nMarkdown-first. Keyboard-driven. Fast.\n\nby Nicklas Rudolfsson')
-    def recovery_path(self): return Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'nirunote/recovery.json'
+    def recovery_path(self):
+        # The scratchpad instance runs next to the main window; keep its snapshot separate.
+        name='scratchpad-recovery.json' if self.scratchpad else 'recovery.json'
+        return Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'nirunote'/name
     def schedule_recovery(self):
         if not self.autosave: return
         self.recovery_debounce.start()
@@ -835,10 +952,11 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def recover(self,sync=False):
         self.recovery_debounce.stop(); self.recovery_deadline.stop()
         if not (self.autosave and self.is_modified()) or self._text_generation==self._recovery_generation: return
+        if self._startup_recovery is not None: return
         if self._recovery_pending and not sync:
             self._recovery_again=True; return
         generation=self._text_generation; epoch=self.recovery_store.epoch
-        payload=json.dumps({'text':self.editor.toPlainText(),'path':self.path,'saved_at':time.time(),'app_version':VERSION},ensure_ascii=False)
+        payload=json.dumps({'text':self.editor.toPlainText(),'path':self.path,'saved_at':time.time(),'app_version':VERSION,'pid':os.getpid()},ensure_ascii=False)
         path=self.recovery_path(); self._recovery_generation=generation
         def write(): return self.recovery_store.write(path,payload,epoch)
         if sync:
@@ -859,24 +977,66 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def clear_recovery(self):
         self.recovery_debounce.stop(); self.recovery_deadline.stop()
         self._recovery_generation=self._text_generation
+        if self._startup_recovery is not None: return
         self.recovery_store.clear(self.recovery_path())
-    def load_recovery(self):
-        p=self.recovery_path()
-        if self.restore and p.exists() and p.stat().st_size:
-            try:
-                data=json.loads(p.read_text(encoding='utf-8')); text=data.get('text','')
-                if text: self.reset_doc(text,'Recovered · unsaved'); self.recovered=True; self.update_document_stats(); return True
-            except Exception: pass
-        return False
+    def read_startup_recovery(self):
+        """Remember a snapshot left by a crash; offer_recovery() asks about it.
+
+        Until the user decided, the snapshot is never cleared or overwritten.
+        """
+        if not self.restore: return
+        path=self.recovery_path()
+        try: data=recovery_snapshot.read_snapshot(path)
+        except ValueError:
+            # Unreadable: keep it for inspection instead of overwriting it.
+            try: os.replace(path,path.with_name(path.stem+'-unreadable.json'))
+            except OSError: pass
+            return
+        if data and not recovery_snapshot.owner_alive(data): self._startup_recovery=data
+    def offer_recovery(self):
+        data=self._startup_recovery
+        if not data: return None
+        on_disk=recovery_snapshot.disk_text(data.get('path'))
+        if on_disk is not None and on_disk==data['text']:
+            # The file already holds this text (saved elsewhere); nothing to recover.
+            self._startup_recovery=None; self.move_recovery_aside(); return 'identical'
+        dialog=RecoveryDialog(self,data,on_disk,self.current_palette()); dialog.exec()
+        self._startup_recovery=None
+        if dialog.choice=='discard':
+            self.move_recovery_aside(); return 'discard'
+        self.restore_snapshot(data); return 'restore'
+    def restore_snapshot(self,data):
+        path=data.get('path')
+        known=bool(path and Path(path).is_file())
+        self.reset_doc(data['text'],(Path(path).name+' · recovered') if known else 'Recovered · unsaved')
+        if known:
+            # Save goes back to the original file; the disk version was shown by Compare.
+            self.path=str(path); self.watch_current(); self.update_file_actions()
+        self.recovered=True
+        # The snapshot on disk already holds exactly this text.
+        self.recovery_debounce.stop(); self.recovery_deadline.stop(); self._recovery_generation=self._text_generation
+        self.update_document_stats()
+    def discarded_recovery_path(self): return self.recovery_path().with_name('recovery-discarded.json')
+    def move_recovery_aside(self):
+        try: os.replace(self.recovery_path(),self.discarded_recovery_path())
+        except OSError: pass
+    def backup_discarded_text(self):
+        # "Don't Save" keeps one copy of the dropped text next to the recovery file.
+        if not self.editor.toPlainText(): return
+        payload=json.dumps({'text':self.editor.toPlainText(),'path':self.path,'saved_at':time.time(),'app_version':VERSION},ensure_ascii=False)
+        try: self.atomic_write(self.discarded_recovery_path(),payload)
+        except Exception: pass
     def dragEnterEvent(self,e):
         urls=e.mimeData().urls(); e.acceptProposedAction() if urls and urls[0].isLocalFile() and Path(urls[0].toLocalFile()).suffix.lower() in ('.md','.markdown','.txt') else e.ignore()
     def dropEvent(self,e):
         p=e.mimeData().urls()[0].toLocalFile()
         if self.maybe_save(): self.load(p); e.acceptProposedAction()
     def closeEvent(self,e):
-        self.settings.setValue('geometry',self.saveGeometry()); self.recover(sync=True);
+        self.settings.setValue('geometry',self.saveGeometry()); self.recover(sync=True)
         if self.path: self.settings.setValue('cursor/'+str(Path(self.path).resolve()),self.editor.textCursor().position()); self.last_document=self.path; self.save_settings()
-        if self.maybe_save(): e.accept()
+        if self.maybe_save():
+            # Saved, unchanged or "Don't Save" (backed up): no crash snapshot is needed.
+            self.clear_recovery(); e.accept()
         else:e.ignore()
 
 def core_self_test():
@@ -973,7 +1133,7 @@ def main():
     app.setApplicationDisplayName(APP+' Scratchpad' if scratch else APP)
     app.setOrganizationName('NIRU')
     app.setDesktopFileName('nirunote-scratchpad' if scratch else 'nirunote')
-    w=Main(skip_session=scratch or force_new or bool(explicit))
+    w=Main(skip_session=scratch or force_new or bool(explicit),scratchpad=scratch)
     if scratch:
         w.open_scratchpad()
     elif explicit and Path(explicit).is_file(): w.load(explicit)
@@ -981,6 +1141,7 @@ def main():
     w.show()
     if focus_start: w.set_focus(True)
     w.raise_(); w.activateWindow()
+    QTimer.singleShot(0,w.offer_recovery)
     return app.exec()
 if __name__=='__main__':
     raise SystemExit(main())

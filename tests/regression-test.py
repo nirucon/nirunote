@@ -338,6 +338,109 @@ def u1_modified_follows_undo():
     dispose(w)
 
 
+def write_snapshot(text, path=None, extra=None):
+    import json
+    recovery_file().parent.mkdir(parents=True, exist_ok=True)
+    data = {'text': text, 'path': str(path) if path else None}
+    data.update(extra or {})
+    recovery_file().write_text(json.dumps(data), encoding='utf-8')
+
+
+def answer_modal(action, nested=None):
+    """Drive the next modal dialog: action(dialog) runs once it is shown."""
+    seen = []
+
+    def drive():
+        dialog = qapp.activeModalWidget()
+        if dialog is None:
+            QTimer.singleShot(20, drive)
+            return
+        seen.append(dialog)
+        if nested:
+            QTimer.singleShot(50, lambda: nested(qapp.activeModalWidget()))
+        action(dialog)
+    QTimer.singleShot(0, drive)
+    return seen
+
+
+@test
+def u2_recovery_prompt():
+    import recovery as rec
+    left, right, marks = rec.side_by_side('a\nb\nc', 'a\nB\nc\nd')
+    assert marks == [' ', '~', ' ', '+'] and right[-1] == 'd' and left[-1] == '', (left, right, marks)
+    assert not rec.owner_alive({'pid': os.getpid()})
+
+    doc = fixture('crash.md', '# Crash\n\nsaved line\n')
+    other = fixture('other.md')
+    # A 0.5.0-format snapshot (text + path only) survives opening another file.
+    write_snapshot('# Crash\n\nsaved line\nunsaved line\n', doc)
+    w = mod.Main(skip_session=True)
+    w.show()
+    assert w._startup_recovery is not None, 'snapshot not detected'
+    w.load(str(other))
+    assert recovery_file().exists(), 'opening a file deleted an undecided recovery snapshot'
+    # The prompt shows file, time and size difference; Compare then Restore.
+    compared = []
+
+    def close_compare(dialog):
+        compared.append(dialog)
+        assert isinstance(dialog, mod.CompareDialog), dialog
+        assert dialog.marks.count('+') == 1, dialog.marks
+        dialog.reject()
+
+    def restore_after_compare(dialog):
+        labels = ' | '.join(label.text() for label in dialog.findChildren(mod.QLabel))
+        assert 'crash.md' in labels and '+13 compared with the file on disk' in labels, labels
+        dialog.compare_button.click()
+        dialog.restore_button.click()
+    answer_modal(restore_after_compare, nested=close_compare)
+    assert w.offer_recovery() == 'restore'
+    assert compared, 'Compare dialog did not open'
+    assert w.editor.toPlainText().endswith('unsaved line\n'), 'recovered text not restored'
+    assert w.path == str(doc) and w.dirty.text() == '●' and 'RECOVERED' in w.stat_left.text()
+    assert doc.read_text() == '# Crash\n\nsaved line\n', 'restore must not write the file'
+    dispose(w)
+
+    # Discard keeps one backup copy.
+    write_snapshot('lost text?', None)
+    w = window()
+    answer_modal(lambda dialog: dialog.discard_button.click())
+    assert w.offer_recovery() == 'discard'
+    backup = recovery_file().with_name('recovery-discarded.json')
+    assert not recovery_file().exists() and 'lost text?' in backup.read_text(), 'discard lost the text'
+    assert not w.editor.toPlainText()
+    dispose(w)
+
+    # Escape restores (never drops text silently).
+    write_snapshot('escape keeps me', None, {'saved_at': 1700000000})
+    w = window()
+    answer_modal(lambda dialog: dialog.reject())
+    assert w.offer_recovery() == 'restore' and w.editor.toPlainText() == 'escape keeps me'
+    dispose(w)
+
+    # An unreadable snapshot is moved aside, not overwritten.
+    recovery_file().write_text('{not json', encoding='utf-8')
+    w = window()
+    assert w._startup_recovery is None
+    assert recovery_file().with_name('recovery-unreadable.json').read_text() == '{not json'
+    dispose(w)
+
+    # "Don't Save" keeps a backup of the dropped text.
+    w = window()
+    w.load(str(other))
+    w.editor.insertPlainText('dropped ')
+    original = mod.neutral_unsaved
+    mod.neutral_unsaved = lambda parent: 'discard'
+    try:
+        assert w.maybe_save()
+    finally:
+        mod.neutral_unsaved = original
+    assert 'dropped ' in backup.read_text()
+    dispose(w)
+    for leftover in recovery_file().parent.glob('recovery-*.json'):
+        leftover.unlink()
+
+
 TMP.cleanup()
 print(f'NIRUNOTE regression tests: OK ({len(PASSED)} tests)', flush=True)
 sys.exit(0)
