@@ -73,8 +73,26 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     def __init__(self, doc, window): super().__init__(doc); self.window=window
     def fmt(self,col,bold=False,italic=False):
         f=QTextCharFormat(); f.setForeground(QColor(col)); f.setFontWeight(700 if bold else 400); f.setFontItalic(italic); return f
+    CODE_STATE=1
+
+    def code_format(self,t,color):
+        f=self.fmt(color); f.setBackground(QColor(t['panel']))
+        f.setFontFamilies(['monospace']); f.setFontFixedPitch(True); f.setFontStyleHint(QFont.StyleHint.Monospace)
+        return f
+
     def highlightBlock(self,text):
         t=self.window.current_palette()
+        # Fenced code blocks: a block state carries "inside a fence" to the
+        # next line. Code is shown verbatim in monospace on a subtle panel
+        # background, without Markdown or spelling marks (no language parsing).
+        inside=self.previousBlockState()==self.CODE_STATE
+        if text.startswith('```'):
+            self.setCurrentBlockState(-1 if inside else self.CODE_STATE)
+            self.setFormat(0,len(text),self.code_format(t,t['md'])); return
+        if inside:
+            self.setCurrentBlockState(self.CODE_STATE)
+            self.setFormat(0,len(text),self.code_format(t,t['fg'])); return
+        self.setCurrentBlockState(-1)
         # Syntax markers are deliberately muted; content remains dominant.
         for m in re.finditer(r'^(#{1,6})(\s+)(.*)$',text):
             level=len(m.group(1))
@@ -92,7 +110,6 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.setFormat(m.start(1),len(m.group(1)),self.fmt(t['accent'],True))
         for m in re.finditer(r'^(>\s?).*$',text): self.setFormat(m.start(),len(m.group(1)),self.fmt(t['md'])); self.setFormat(m.end(1),len(text)-m.end(1),self.fmt(t['muted'],False,True))
         for m in re.finditer(r'\[([^]]+)\]\(([^)]+)\)',text): self.setFormat(m.start(),m.end()-m.start(),self.fmt(t['accent']))
-        if text.startswith('```'): self.setFormat(0,len(text),self.fmt(t['md']))
         # Local/offline live spelling; skip URLs and inline code.
         if self.window.spell_dict and self.window.spell_enabled and not getattr(self.window,'spell_deferred',False) and self.window.editor.document().characterCount() <= LARGE_DOCUMENT_CHARS:
             excluded=[]

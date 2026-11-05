@@ -478,6 +478,36 @@ def u3_outline():
     dispose(w)
 
 
+@test
+def u4_code_blocks_are_highlighted():
+    w = window()
+    w.set_theme('dark')
+    w.editor.setPlainText('# Head\n```\n# not a heading *x*\ncode line\n```\nafter *em*\n')
+    qapp.processEvents()
+    panel = mod.QColor(w.current_palette()['panel'])
+    doc = w.editor.document()
+
+    def formats(number):
+        return doc.findBlockByNumber(number).layout().formats()
+
+    for number in (1, 2, 3, 4):
+        ranges = formats(number)
+        assert ranges and all(r.format.background().color() == panel for r in ranges), (number, ranges)
+        assert all(r.format.fontFixedPitch() for r in ranges), number
+    # Inside the fence no heading size or emphasis is applied.
+    assert all(not r.format.fontItalic() and r.format.fontWeight() <= 400 for r in formats(2))
+    # After the closing fence, normal Markdown highlighting resumes.
+    assert any(r.format.fontItalic() for r in formats(5)), 'emphasis after the fence missing'
+    assert not any(r.format.background().color() == panel for r in formats(5))
+    # Typing an opening fence turns the following lines into code.
+    c = mod.QTextCursor(doc.findBlockByNumber(5))
+    c.insertText('```\n')
+    qapp.processEvents()
+    assert all(r.format.background().color() == panel for r in formats(6)), 'unclosed fence not highlighted'
+    w.set_modified(False)
+    dispose(w)
+
+
 TMP.cleanup()
 print(f'NIRUNOTE regression tests: OK ({len(PASSED)} tests)', flush=True)
 sys.exit(0)
