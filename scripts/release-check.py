@@ -7,7 +7,7 @@ import re, sys
 root = Path(__file__).resolve().parent.parent
 version = (root / 'VERSION').read_text().strip()
 checks = {
-    'nirunote/app.py': r"^VERSION\s*=\s*'([^']+)'",
+    'nirunote/constants.py': r"^VERSION\s*=\s*'([^']+)'",
     'install.sh': r'^VERSION="([^"]+)"',
     'README.md': r'\*\*Version:\*\* ([0-9.]+)',
     'RELEASE-CONTRACT.md': r'^# NIRUNOTE ([0-9.]+)',

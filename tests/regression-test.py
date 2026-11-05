@@ -460,12 +460,13 @@ def u2_recovery_prompt():
     w = window()
     w.load(str(other))
     w.editor.insertPlainText('dropped ')
-    original = mod.neutral_unsaved
-    mod.neutral_unsaved = lambda parent: 'discard'
+    import fileio
+    original = fileio.neutral_unsaved
+    fileio.neutral_unsaved = lambda parent: 'discard'
     try:
         assert w.maybe_save()
     finally:
-        mod.neutral_unsaved = original
+        fileio.neutral_unsaved = original
     assert 'dropped ' in backup.read_text()
     dispose(w)
     for leftover in recovery_file().parent.glob('recovery-*.json'):
@@ -567,8 +568,12 @@ def restore_last_document_on_start():
     try:
         w = mod.Main()
         w.show()
-        assert w.path == str(doc) and 'reopened' in w.editor.toPlainText(), 'last document not restored'
-        assert str(doc) in w.watcher.files(), 'restored document is not watched for external changes'
+        assert w.path == str(doc) and 'reopened' in w.editor.toPlainText(), (
+            'last document not restored'
+        )
+        assert str(doc) in w.watcher.files(), (
+            'restored document is not watched for external changes'
+        )
         assert_clean(w, 'restore last document')
         dispose(w)
     finally:
