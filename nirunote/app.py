@@ -6,12 +6,12 @@ from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCharFormat, QColor,
 try:
     from .workers import run_async
     from .markdown import markdown_to_html, safe_link
-    from .spell import HunspellDictionary, SpellResult
+    from .spell import HunspellDictionary, SpellResult, dictionary_candidates, spell_status_text, unavailable_hint
 except ImportError:
     sys.path.insert(0,str(Path(__file__).resolve().parent))
     from workers import run_async
     from markdown import markdown_to_html, safe_link
-    from spell import HunspellDictionary, SpellResult
+    from spell import HunspellDictionary, SpellResult, dictionary_candidates, spell_status_text, unavailable_hint
 from PySide6.QtWidgets import (QApplication,QMainWindow,QPlainTextEdit,QTextEdit,QTextBrowser,QFileDialog,QMessageBox,QMenu,QToolButton,QLabel,QWidget,QHBoxLayout,QVBoxLayout,QDialog,QFormLayout,QComboBox,QSpinBox,QCheckBox,QDialogButtonBox,QLineEdit,QInputDialog,QStackedWidget,QFrame,QPushButton,QListWidget,QListWidgetItem)
 try:
     from .theme import load_nirux_palette, nirux_available
@@ -277,7 +277,7 @@ class Main(QMainWindow):
         self.editor=NoteEditor(self); self.editor.setAccessibleName('Markdown editor'); self.editor.setFrameStyle(0); self.editor.setTabStopDistance(32); self.editor.setAcceptDrops(False); eh.addWidget(self.editor,1); eh.addStretch()
         self.preview_host=QWidget(); ph=QHBoxLayout(self.preview_host); ph.setContentsMargins(24,20,24,0); ph.setSpacing(0); ph.addStretch(); self.preview=QTextBrowser(); self.preview.setAccessibleName('Markdown preview'); self.preview.setOpenExternalLinks(False); self.preview.anchorClicked.connect(self.open_preview_link); self.preview.setFrameStyle(0); ph.addWidget(self.preview,1); ph.addStretch()
         self.stack.addWidget(self.editor_host); self.stack.addWidget(self.preview_host); self.v.addWidget(self.stack,1)
-        self.status=QWidget(); self.status.setAccessibleName('Document status'); sh=QHBoxLayout(self.status); sh.setContentsMargins(14,5,14,7); self.stat_left=QLabel('Saved · Markdown · 0 words · 0 chars'); self.stat_left.setAccessibleName('Document statistics'); self.stat_right=QLabel('Ln 1, Col 1'); self.stat_right.setAccessibleName('Cursor position'); sh.addWidget(self.stat_left); sh.addStretch(); sh.addWidget(self.stat_right); self.v.addWidget(self.status)
+        self.status=QWidget(); self.status.setAccessibleName('Document status'); sh=QHBoxLayout(self.status); sh.setContentsMargins(14,5,14,7); self.stat_left=QLabel('Saved · Markdown · 0 words · 0 chars'); self.stat_left.setAccessibleName('Document statistics'); self.stat_right=QLabel('Ln 1, Col 1'); self.stat_right.setAccessibleName('Cursor position'); self.stat_spell=QLabel('Spelling: off'); self.stat_spell.setAccessibleName('Spelling status, click for spelling settings'); self.stat_spell.setToolTip('Spelling settings'); self.stat_spell.setCursor(Qt.CursorShape.PointingHandCursor); self.stat_spell.mousePressEvent=lambda e:self.prefs('spell'); sh.addWidget(self.stat_left); sh.addSpacing(10); sh.addWidget(self.stat_spell); sh.addStretch(); sh.addWidget(self.stat_right); self.v.addWidget(self.status)
         self.findbar=QWidget(); fb=QHBoxLayout(self.findbar); fb.setContentsMargins(14,5,14,7); self.find_input=QLineEdit(); self.find_input.setAccessibleName('Find text'); self.find_input.setPlaceholderText('Find'); self.replace_input=QLineEdit(); self.replace_input.setAccessibleName('Replace text'); self.replace_input.setPlaceholderText('Replace'); self.case_box=QCheckBox('Aa'); self.word_box=QCheckBox('Word'); prev=QPushButton('↑'); nxt=QPushButton('↓'); rep=QPushButton('Replace'); allb=QPushButton('All'); closeb=QPushButton('×'); fb.addWidget(self.find_input,2); fb.addWidget(self.replace_input,2); fb.addWidget(self.case_box); fb.addWidget(self.word_box); fb.addWidget(prev); fb.addWidget(nxt); fb.addWidget(rep); fb.addWidget(allb); fb.addWidget(closeb); self.findbar.hide(); self.v.insertWidget(self.v.indexOf(self.status),self.findbar); prev.clicked.connect(lambda:self.find_next(True)); nxt.clicked.connect(lambda:self.find_next(False)); rep.clicked.connect(self.replace_one); allb.clicked.connect(self.replace_all); closeb.clicked.connect(self.hide_find); self.find_input.returnPressed.connect(lambda:self.find_next(False)); self.setCentralWidget(root); self.high=MarkdownHighlighter(self.editor.document(),self); self.spell_timer=QTimer(self); self.spell_timer.setSingleShot(True); self.spell_timer.setInterval(350); self.spell_timer.timeout.connect(self.finish_spell_pass); self.stats_timer=QTimer(self); self.stats_timer.setSingleShot(True); self.stats_timer.setInterval(180); self.stats_timer.timeout.connect(self.update_document_stats); self.preview_timer=QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(140); self.preview_timer.timeout.connect(self.update_preview); self._preview_generation=0; self.editor.textChanged.connect(self.changed); self.editor.cursorPositionChanged.connect(self.cursor_changed)
         self.esc_shortcut=QShortcut(QKeySequence('Escape'),self); self.esc_shortcut.activated.connect(lambda:self.set_focus(False) if self.focused else None)
         self.build_menu(); self.apply_theme(); self.configure_theme_watcher(); self.apply_editor_options(); recovered=self.load_recovery();
@@ -303,22 +303,26 @@ class Main(QMainWindow):
 
     def init_spell(self):
         self._spell_generation+=1; generation=self._spell_generation
-        self.spell_dict=None; self.spell_deferred=True
+        self.spell_dict=None; self.spell_deferred=True; self.spell_hint=''
         if not self.spell_enabled:
-            self.spell_deferred=False; return
+            self.spell_state='off'; self.spell_deferred=False; return
+        self.spell_state='starting'
         root=Path.home()/'.local/share/nirunote/dictionaries'
         names=(['sv_SE','en_US'] if self.spell_language=='auto' else [self.spell_language])
         def probe():
             for name in names:
-                try:
-                    d=HunspellDictionary(root/name, root/'personal.txt')
-                    check='Hej' if name=='sv_SE' else 'Hello'
-                    if d.check(check) and not d.check('asdasdasd'): return d
-                except Exception: continue
-            return None
-        def done(dictionary):
+                for base in dictionary_candidates(name,root) or [root/name]:
+                    try:
+                        d=HunspellDictionary(base, root/'personal.txt')
+                        check='Hej' if name=='sv_SE' else 'Hello'
+                        if d.check(check) and not d.check('asdasdasd'): return d,''
+                    except Exception: continue
+            return None,unavailable_hint(names,root)
+        def done(result):
             if generation!=self._spell_generation or not self.spell_enabled:return
+            dictionary,hint=result
             self.spell_dict=dictionary; self.spell_deferred=False
+            self.spell_state='ready' if dictionary is not None else 'unavailable'; self.spell_hint=hint
             if dictionary is not None:dictionary.results.finished.connect(self.spell_finished)
             if hasattr(self,'high'):self.rehighlight()
             self.update_document_stats()
@@ -581,18 +585,14 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def update_document_stats(self):
         txt=self.editor.toPlainText()
         chars=len(txt)
-        spell=''
-        if self.spell_enabled:
-            if chars > LARGE_DOCUMENT_CHARS: spell=' · SPELL PAUSED (LARGE DOC)'
-            elif self.spell_dict: spell=' · '+('SV' if Path(self.spell_dict.base).name=='sv_SE' else 'EN')
-            else: spell=' · SPELL?'
+        self.stat_spell.setText(spell_status_text(self.spell_enabled,self.spell_state,self.spell_dict,self.spell_hint,chars > LARGE_DOCUMENT_CHARS))
         words=len(txt.split())
         read=(f' · {max(1,(words+219)//220)} min' if self.show_reading_time and words else '')
         ro=(' · READ ONLY' if self.path and Path(self.path).exists() and not os.access(self.path,os.W_OK) else '')
         state='Modified' if self.dirty.text() else 'Saved'
         theme='NIRUX' if self.theme=='Follow NIRUX' else self.theme.capitalize()
         recovered=' · RECOVERED' if self.recovered else ''
-        self.stat_left.setText(f'{state} · {theme} · '+(('Markdown' if self.current_ext() in ('md','markdown') else 'Text'))+f' · {words} words · {chars} chars'+read+spell+ro+recovered)
+        self.stat_left.setText(f'{state} · {theme} · '+(('Markdown' if self.current_ext() in ('md','markdown') else 'Text'))+f' · {words} words · {chars} chars'+read+ro+recovered)
 
     def finish_spell_pass(self):
         # Keep large documents syntax-only. For normal documents, resolve all
@@ -797,7 +797,10 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def toggle_float(self):
         # Qt Tool windows are normally treated as floating by both stacking and tiling WMs.
         floating=bool(self.windowFlags() & Qt.WindowType.Tool); geo=self.geometry(); self.hide(); self.setWindowFlag(Qt.WindowType.Tool,not floating); self.setWindowFlag(Qt.WindowType.Window, floating); self.show(); self.setGeometry(geo); self.raise_(); self.activateWindow()
-    def prefs(self): Prefs(self).exec()
+    def prefs(self,section=None):
+        dialog=Prefs(self)
+        if section=='spell': dialog.spell.setFocus()
+        dialog.exec()
     def about(self): neutral_notice(self,'About NIRUNOTE',f'NIRUNOTE {VERSION}\n\nMinimal, suckless writing for Linux.\nMarkdown-first. Keyboard-driven. Fast.\n\nby Nicklas Rudolfsson')
     def recovery_path(self): return Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'nirunote/recovery.json'
     def schedule_recovery(self):

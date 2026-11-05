@@ -74,3 +74,57 @@ class HunspellDictionary:
                 if line.startswith('#'): return []
         except Exception: pass
         return []
+
+
+# Dictionaries are looked up in NIRUNOTE's user-local directory first (the
+# installer downloads the Swedish one there), then in the usual distribution
+# locations used by hunspell packages.
+SYSTEM_DICTIONARY_DIRS = (
+    Path('/usr/share/hunspell'),
+    Path('/usr/share/myspell/dicts'),
+    Path('/usr/share/myspell'),
+)
+
+# Debian/Ubuntu package names; the hint is only shown in the status line.
+DICTIONARY_PACKAGES = {'sv_SE': 'hunspell-sv', 'en_US': 'hunspell-en-us'}
+
+
+def dictionary_candidates(name, user_dir, system_dirs=SYSTEM_DICTIONARY_DIRS):
+    """Return dictionary base paths (without .dic/.aff) that exist for name."""
+    found = []
+    for folder in (Path(user_dir), *system_dirs):
+        base = folder / name
+        if Path(str(base) + '.dic').is_file() and Path(str(base) + '.aff').is_file():
+            found.append(base)
+    return found
+
+
+def language_code(base):
+    """'…/sv_SE' -> 'sv'."""
+    return Path(str(base)).name.split('_')[0].lower()
+
+
+def unavailable_hint(names, user_dir, system_dirs=SYSTEM_DICTIONARY_DIRS):
+    """Explain why no dictionary could be used, as a short install hint."""
+    if not shutil.which('hunspell'):
+        return 'install hunspell'
+    for name in names:
+        if not dictionary_candidates(name, user_dir, system_dirs):
+            return 'install ' + DICTIONARY_PACKAGES.get(name, 'a hunspell dictionary')
+    return 'dictionary check failed'
+
+
+def spell_status_text(enabled, state, dictionary=None, hint='', large=False):
+    """Human-readable status line text for spell checking.
+
+    state is one of 'off', 'starting', 'ready', 'unavailable'.
+    """
+    if not enabled or state == 'off':
+        return 'Spelling: off'
+    if large:
+        return 'Spelling: paused (large document)'
+    if state == 'ready' and dictionary is not None:
+        return 'Spelling: ' + language_code(dictionary.base)
+    if state == 'starting':
+        return 'Spelling: starting…'
+    return 'Spelling: unavailable' + (f' ({hint})' if hint else '')

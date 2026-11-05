@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location('nirunote_app', ROOT / 'nirunote' / 'app.py')
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+sys.path.insert(0, str(ROOT / 'nirunote'))
 
 qapp = QApplication(['nirunote-regression-test'])
 qapp.setApplicationName('NIRUNOTE-REGRESSION')
@@ -246,6 +247,53 @@ def t3_idle_has_no_periodic_timers():
     dirty = idle_timer_events(w)
     print(f'    idle timer events in 10 s, dirty document: {dirty}')
     assert dirty <= 3, f'dirty idle window fired {dirty} timer events in 10 s'
+    dispose(w)
+
+
+@test
+def t4_spelling_status_is_readable():
+    import spell as spellmod
+    sst = spellmod.spell_status_text
+    assert sst(False, 'off') == 'Spelling: off'
+    assert sst(True, 'ready', FakeDictionary('/x/sv_SE')) == 'Spelling: sv'
+    assert sst(True, 'ready', FakeDictionary('/x/en_US')) == 'Spelling: en'
+    assert sst(True, 'unavailable', None, 'install hunspell-sv') == 'Spelling: unavailable (install hunspell-sv)'
+    assert sst(True, 'ready', FakeDictionary('/x/sv_SE'), large=True) == 'Spelling: paused (large document)'
+    old_path = os.environ['PATH']
+    empty = BASE / 'empty-bin'
+    empty.mkdir(exist_ok=True)
+    try:
+        os.environ['PATH'] = str(empty)
+        assert spellmod.unavailable_hint(['sv_SE'], dict_dir, ()) == 'install hunspell'
+        fake = empty / 'hunspell'
+        fake.write_text('#!/bin/sh\n')
+        fake.chmod(0o755)
+        assert spellmod.unavailable_hint(['sv_SE'], dict_dir, ()) == 'install hunspell-sv'
+    finally:
+        os.environ['PATH'] = old_path
+    # In the window: ready with the (fake) Swedish dictionary, off when disabled.
+    for name in ('sv_SE.dic', 'sv_SE.aff'):
+        (dict_dir / name).write_text('')
+    w = window()
+    w.load(str(fixture('spell.md')))
+    spin(1.0)
+    assert w.stat_spell.text() == 'Spelling: sv', w.stat_spell.text()
+    assert 'SPELL' not in w.stat_left.text(), w.stat_left.text()
+    w.spell_enabled = False
+    w.init_spell()
+    w.update_document_stats()
+    assert w.stat_spell.text() == 'Spelling: off', w.stat_spell.text()
+    # Clicking the status opens Preferences with the spelling setting focused.
+    opened = []
+    original = mod.Prefs.exec
+    mod.Prefs.exec = lambda self: opened.append(self) or 0
+    try:
+        w.stat_spell.mousePressEvent(None)
+    finally:
+        mod.Prefs.exec = original
+    assert opened and isinstance(opened[0], mod.Prefs), 'spelling status click did not open Preferences'
+    for name in ('sv_SE.dic', 'sv_SE.aff'):
+        (dict_dir / name).unlink()
     dispose(w)
 
 

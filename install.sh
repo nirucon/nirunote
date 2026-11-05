@@ -67,7 +67,7 @@ if spell_sv_ok; then
 elif ! command -v hunspell >/dev/null 2>&1; then
   echo "WARNING: hunspell is missing. Install it once with your distribution package manager to enable spelling."
 else
-  echo "WARNING: Swedish dictionary could not be prepared; NIRUNOTE will show SPELL?."
+  echo "WARNING: Swedish dictionary could not be prepared; NIRUNOTE will show \"Spelling: unavailable\"."
 fi
 
 mkdir -p "$RELEASES" "$BIN_DIR" "$DESKTOP_DIR" "$ICON_DIR" "$STATE_DIR"
