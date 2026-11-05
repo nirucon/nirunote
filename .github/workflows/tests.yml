@@ -15,10 +15,12 @@ jobs:
       - name: Install PySide6
         run: python -m pip install PySide6
       - name: Python syntax
-        run: python -m compileall -q nirunote gui-smoke-test.py
+        run: python -m compileall -q nirunote gui-smoke-test.py tests
       - name: Core tests
         run: QT_QPA_PLATFORM=offscreen python nirunote/app.py --core-self-test
       - name: GUI smoke test
         run: QT_QPA_PLATFORM=offscreen python gui-smoke-test.py
+      - name: Regression tests
+        run: QT_QPA_PLATFORM=offscreen python tests/regression-test.py
       - name: Release preflight
         run: python scripts/release-check.py

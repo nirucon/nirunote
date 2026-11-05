@@ -103,7 +103,7 @@ class Prefs(QDialog):
         p=QFileDialog.getExistingDirectory(self,'Choose default save folder',self.save_folder.text() or str(Path.home()))
         if p: self.save_folder.setText(p)
     def accept(self):
-        w=self.w; w.theme=self.theme.currentText(); w.default_format='md' if self.fmt.currentIndex()==0 else 'txt'; w.writing_width=self.width.currentText(); w.font_size=self.size.value(); w.word_wrap=self.wrap.isChecked(); w.highlight_line=self.line.isChecked(); w.autosave=self.autosave.isChecked(); w.restore=self.restore.isChecked(); w.typewriter=self.typewriter.isChecked(); w.spell_enabled=self.spell.isChecked(); w.spell_language=self.spell_lang.currentText(); w.save_folder_mode='custom' if self.save_mode.currentIndex()==1 else 'last'; w.default_save_folder=self.save_folder.text().strip(); w.restore_last_document=self.restore_last.isChecked(); w.show_reading_time=self.reading_time.isChecked(); w.init_spell(); w.high.rehighlight(); w.changed(); w.save_settings(); w.apply_theme(); w.configure_theme_watcher(); w.apply_editor_options(); super().accept()
+        w=self.w; w.theme=self.theme.currentText(); w.default_format='md' if self.fmt.currentIndex()==0 else 'txt'; w.writing_width=self.width.currentText(); w.font_size=self.size.value(); w.word_wrap=self.wrap.isChecked(); w.highlight_line=self.line.isChecked(); w.autosave=self.autosave.isChecked(); w.restore=self.restore.isChecked(); w.typewriter=self.typewriter.isChecked(); w.spell_enabled=self.spell.isChecked(); w.spell_language=self.spell_lang.currentText(); w.save_folder_mode='custom' if self.save_mode.currentIndex()==1 else 'last'; w.default_save_folder=self.save_folder.text().strip(); w.restore_last_document=self.restore_last.isChecked(); w.show_reading_time=self.reading_time.isChecked(); w.init_spell(); w.rehighlight(); w.update_document_stats(); w.save_settings(); w.apply_theme(); w.configure_theme_watcher(); w.apply_editor_options(); super().accept()
 
 class NoteEditor(QPlainTextEdit):
     def __init__(self, owner):
@@ -224,7 +224,7 @@ def neutral_unsaved(parent):
 
 class Main(QMainWindow):
     def __init__(self,skip_session=False):
-        super().__init__(); self.settings=QSettings('NIRU','NIRUNOTE'); self.path=None; self.previewing=False; self.focused=False; self._loading=False; self._external_mtime=None; self._ignore_watch=False
+        super().__init__(); self.settings=QSettings('NIRU','NIRUNOTE'); self.path=None; self.previewing=False; self.focused=False; self._loading=False; self._formatting=0; self._external_mtime=None; self._ignore_watch=False
         self.spell_enabled=self.settings.value('spell_enabled',True,type=bool); self.spell_language=self.settings.value('spell_language','sv_SE'); self.spell_dict=None; self.spell_deferred=False; self._spell_generation=0; self._recovery_pending=False; self.init_spell();
         saved_theme=self.settings.value('theme',''); self.theme=saved_theme or ('Follow NIRUX' if nirux_available() else 'dark'); self.default_format=self.settings.value('format','md'); self.font_size=int(self.settings.value('font_size',17)); self.autosave=self.settings.value('autosave',True,type=bool); self.restore=self.settings.value('restore',True,type=bool); self.typewriter=self.settings.value('typewriter',False,type=bool); self.word_wrap=self.settings.value('word_wrap',True,type=bool); self.highlight_line=self.settings.value('highlight_line',True,type=bool); self.writing_width=self.settings.value('writing_width','Normal'); self.recent=self.settings.value('recent',[],type=list) or []; self.save_folder_mode=self.settings.value('save_folder_mode','last'); self.default_save_folder=self.settings.value('default_save_folder',str(Path.home()/'Documents')); self.last_save_folder=self.settings.value('last_save_folder',str(Path.home()/'Documents')); self.last_open_folder=self.settings.value('last_open_folder',str(Path.home())); self.restore_last_document=self.settings.value('restore_last_document',False,type=bool); self.show_reading_time=self.settings.value('show_reading_time',False,type=bool); self.last_document=self.settings.value('last_document',''); self.line_ending='\n'; self.had_bom=False; self._external_prompt=False; self.recovered=False
         self.setWindowTitle(APP); self.setMinimumSize(560,400); self.setAcceptDrops(True); self.watcher=QFileSystemWatcher(self); self.watcher.fileChanged.connect(self.external_file_changed); self.theme_watcher=ThemeWatcher(self); self.theme_watcher.changed.connect(self._nirux_theme_changed)
@@ -282,7 +282,7 @@ class Main(QMainWindow):
             if generation!=self._spell_generation or not self.spell_enabled:return
             self.spell_dict=dictionary; self.spell_deferred=False
             if dictionary is not None:dictionary.results.finished.connect(self.spell_finished)
-            if hasattr(self,'high'):self.high.rehighlight()
+            if hasattr(self,'high'):self.rehighlight()
             self.update_document_stats()
         run_async(self,probe,done)
 
@@ -291,12 +291,12 @@ class Main(QMainWindow):
 
     def add_dictionary_word(self,word):
         if self.spell_dict:
-            self.spell_dict.add_word(word); self.high.rehighlight(); self.changed()
+            self.spell_dict.add_word(word); self.rehighlight()
 
     def ignore_word(self,word):
         if self.spell_dict:
             self.spell_dict.personal_words.add(word.casefold()); self.spell_dict.cache.pop(word.casefold(),None)
-            self.high.rehighlight()
+            self.rehighlight()
 
     def copy_feedback(self):
         self.copy_all(); old=self.copy_btn.text(); self.copy_btn.setText('✓')
@@ -459,7 +459,7 @@ class Main(QMainWindow):
         else:watcher.stop()
     def _nirux_theme_changed(self,_palette):
         if self.theme=='Follow NIRUX':
-            self.apply_theme(); self.update_line_highlight(); self.high.rehighlight()
+            self.apply_theme(); self.update_line_highlight(); self.rehighlight()
     def apply_theme(self):
         t=self.current_palette()
         self.setStyleSheet(f'''QMainWindow,QWidget,QPlainTextEdit,QTextBrowser,QDialog{{background:{t['bg']};color:{t['fg']};}} QPlainTextEdit,QTextBrowser{{border:none;padding:30px 18px;selection-background-color:{t['select']};}} QToolButton{{background:transparent;color:{t['muted']};border:none;border-radius:5px;padding:5px 8px;}} QToolButton:hover{{background:{t['panel']};color:{t['fg']};}} QMenu{{background:{t['panel']};color:{t['fg']};border:1px solid {t['border']};padding:6px;}} QMenu::item{{padding:7px 28px 7px 12px;border-radius:4px;}} QMenu::item:selected{{background:{t['select']};}} QMenu::separator{{height:1px;background:{t['border']};margin:5px 8px;}} QScrollBar:vertical{{background:transparent;width:4px;margin:0;}} QScrollBar::handle:vertical{{background:{t['border']};min-height:28px;border-radius:2px;}} QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{{height:0;}} QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical{{background:transparent;}} QLabel{{color:{t['muted']};}}
@@ -491,7 +491,7 @@ QToolButton[headerButton="true"]:hover{{background:{t['select']};color:{t['fg']}
 QToolButton[headerButton="true"]:pressed{{background:{t['panel']};color:{t['fg']};}}
 QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
 ''')
-        f=QFont('monospace'); f.setStyleHint(QFont.StyleHint.Monospace); f.setPointSize(self.font_size); self.editor.setFont(f); self.preview.setFont(QFont('sans-serif',self.font_size)); self.high.rehighlight(); self.update_preview(); self.update_line_highlight()
+        f=QFont('monospace'); f.setStyleHint(QFont.StyleHint.Monospace); f.setPointSize(self.font_size); self.editor.setFont(f); self.preview.setFont(QFont('sans-serif',self.font_size)); self.rehighlight(); self.update_preview(); self.update_line_highlight()
     def apply_editor_options(self):
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth if self.word_wrap else QPlainTextEdit.LineWrapMode.NoWrap); self.apply_width(); self.update_line_highlight()
     def apply_width(self):
@@ -504,7 +504,18 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
     def toggle_line(self): self.highlight_line=not self.highlight_line; self.save_settings(); self.update_line_highlight(); self.line_action.setChecked(self.highlight_line)
     def save_settings(self):
         for k,v in [('theme',self.theme),('format',self.default_format),('font_size',self.font_size),('autosave',self.autosave),('restore',self.restore),('typewriter',self.typewriter),('word_wrap',self.word_wrap),('highlight_line',self.highlight_line),('writing_width',self.writing_width),('spell_enabled',self.spell_enabled),('spell_language',self.spell_language),('save_folder_mode',self.save_folder_mode),('default_save_folder',self.default_save_folder),('last_save_folder',self.last_save_folder),('last_open_folder',self.last_open_folder),('restore_last_document',self.restore_last_document),('show_reading_time',self.show_reading_time),('last_document',self.last_document)]: self.settings.setValue(k,v)
+    def rehighlight(self):
+        # QSyntaxHighlighter.rehighlight() re-applies formats through the
+        # document, which emits contentsChanged/textChanged although no text
+        # changed. Mark the pass so changed() can ignore it; otherwise every
+        # formatting pass looks like an edit (T1) and re-arms the spell timer,
+        # whose handler rehighlights again: a self-sustaining loop (T3).
+        self._formatting+=1
+        try: self.high.rehighlight()
+        finally: self._formatting-=1
+
     def changed(self):
+        if self._formatting: return
         # Keep the typing/open path cheap. Full-document work is delayed and
         # preview rendering only happens while Preview is actually visible.
         self.spell_deferred=True
@@ -548,12 +559,12 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
                 threading.Thread(target=spell_worker,daemon=True,name='nirunote-spell').start()
         self.spell_deferred=False
         if self.editor.document().characterCount() <= LARGE_DOCUMENT_CHARS:
-            self.high.rehighlight()
+            self.rehighlight()
 
     def spell_finished(self, dictionary):
         dictionary.inflight=False
         if dictionary is self.spell_dict and self.spell_enabled and self.editor.document().characterCount() <= LARGE_DOCUMENT_CHARS:
-            self.high.rehighlight()
+            self.rehighlight()
 
     def cursor_changed(self):
         if self.previewing:
@@ -582,6 +593,8 @@ QToolButton::menu-indicator{{image:none;width:0px;height:0px;}}
         if not self.maybe_save(): return
         p,_=QFileDialog.getOpenFileName(self,'Open text',self.last_open_folder,'Markdown (*.md *.markdown);;Text (*.txt);;All files (*)')
         if p: self.last_open_folder=str(Path(p).parent); self.save_settings(); self.load(p)
+    def open_scratchpad(self):
+        scratch_path=Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'nirunote/scratchpad.md'; scratch_path.parent.mkdir(parents=True,exist_ok=True); scratch_path.touch(exist_ok=True); self.load(scratch_path); self.setWindowTitle('NIRUNOTE Scratchpad')
     def open_recent(self,p):
         if self.maybe_save(): self.load(p)
     def load(self,p,quiet=False):
@@ -862,7 +875,7 @@ def main():
     app.setDesktopFileName('nirunote-scratchpad' if scratch else 'nirunote')
     w=Main(skip_session=scratch or force_new or bool(explicit))
     if scratch:
-        scratch_path=Path(os.environ.get('XDG_STATE_HOME',Path.home()/'.local/state'))/'nirunote/scratchpad.md'; scratch_path.parent.mkdir(parents=True,exist_ok=True); scratch_path.touch(exist_ok=True); w.load(scratch_path); w.setWindowTitle('NIRUNOTE Scratchpad')
+        w.open_scratchpad()
     elif explicit and Path(explicit).is_file(): w.load(explicit)
     elif force_new: w.reset_doc()
     w.show()
