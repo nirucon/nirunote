@@ -1,4 +1,5 @@
 """Recovery snapshot helpers: reading, describing and diffing (no Qt)."""
+
 from __future__ import annotations
 
 import difflib

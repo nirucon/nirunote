@@ -1,0 +1,8 @@
+# Development tooling only. NIRUNOTE has no build step and no packaging
+# metadata; ruff is not a runtime dependency.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.format]
+quote-style = "preserve"

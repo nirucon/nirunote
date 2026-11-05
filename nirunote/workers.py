@@ -11,7 +11,9 @@ class AsyncResult(QObject):
     failed = Signal(str)
 
 
-def run_async(parent: QObject, function: Callable[..., Any], on_done=None, on_failed=None) -> AsyncResult:
+def run_async(
+    parent: QObject, function: Callable[..., Any], on_done=None, on_failed=None
+) -> AsyncResult:
     result = AsyncResult(parent)
     if on_done is not None:
         result.done.connect(on_done)

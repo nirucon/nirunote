@@ -7,9 +7,15 @@ from pathlib import Path
 from typing import Any
 
 DARK = {
-    'bg': '#090909', 'fg': '#ededed', 'muted': '#858585', 'panel': '#141414',
-    'border': '#292929', 'accent': '#bdbdbd', 'select': '#333333',
-    'line': '#0b0b0b', 'md': '#6f6f6f',
+    'bg': '#090909',
+    'fg': '#ededed',
+    'muted': '#858585',
+    'panel': '#141414',
+    'border': '#292929',
+    'accent': '#bdbdbd',
+    'select': '#333333',
+    'line': '#0b0b0b',
+    'md': '#6f6f6f',
 }
 
 
@@ -54,7 +60,7 @@ def _hex(value: Any, fallback: str) -> str:
 
 def _rgb(value: str) -> tuple[int, int, int]:
     value = _hex(value, '#000000')
-    return tuple(int(value[i:i + 2], 16) for i in (1, 3, 5))
+    return tuple(int(value[i : i + 2], 16) for i in (1, 3, 5))
 
 
 def _hex_rgb(rgb) -> str:
@@ -71,6 +77,7 @@ def luminance(value: str) -> float:
     def channel(v: int) -> float:
         v /= 255
         return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
     r, g, b = _rgb(value)
     return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
 
@@ -104,7 +111,15 @@ def _kitty(path: Path) -> dict[str, str]:
         if not line or line.startswith('#') or len(line.split()) < 2:
             continue
         key, value = line.split(None, 1)
-        if key in {'background', 'foreground', 'color0', 'color1', 'color4', 'color8', 'selection_background'}:
+        if key in {
+            'background',
+            'foreground',
+            'color0',
+            'color1',
+            'color4',
+            'color8',
+            'selection_background',
+        }:
             colors[key] = value.strip()
     return colors
 
@@ -120,27 +135,31 @@ def load_nirux_palette(paths: dict[str, Path] | None = None) -> dict[str, str]:
         fg = _hex(kitty.get('foreground'), palette['fg'])
         muted = _hex(kitty.get('color8'), palette['muted'])
         accent = _hex(kitty.get('color4'), palette['accent'])
-        palette.update({
-            'bg': bg,
-            'fg': fg,
-            'muted': muted,
-            'border': mix(_hex(kitty.get('color0'), bg), muted, 0.55),
-            'accent': accent,
-            'select': _hex(kitty.get('selection_background'), mix(bg, accent, 0.25)),
-            'line': mix(bg, fg, 0.06),
-            'md': mix(muted, accent, 0.20),
-            'panel': mix(bg, fg, 0.035),
-        })
+        palette.update(
+            {
+                'bg': bg,
+                'fg': fg,
+                'muted': muted,
+                'border': mix(_hex(kitty.get('color0'), bg), muted, 0.55),
+                'accent': accent,
+                'select': _hex(kitty.get('selection_background'), mix(bg, accent, 0.25)),
+                'line': mix(bg, fg, 0.06),
+                'md': mix(muted, accent, 0.20),
+                'panel': mix(bg, fg, 0.035),
+            }
+        )
     if colors:
-        palette.update({
-            'bg': _hex(colors.get('background'), palette['bg']),
-            'fg': _hex(colors.get('foreground'), palette['fg']),
-            'muted': _hex(colors.get('muted'), palette['muted']),
-            'border': _hex(colors.get('border'), palette['border']),
-            'accent': _hex(colors.get('focus') or colors.get('accent'), palette['accent']),
-            'select': _hex(colors.get('selected'), palette['select']),
-            'panel': _hex(colors.get('surface'), palette['panel']),
-        })
+        palette.update(
+            {
+                'bg': _hex(colors.get('background'), palette['bg']),
+                'fg': _hex(colors.get('foreground'), palette['fg']),
+                'muted': _hex(colors.get('muted'), palette['muted']),
+                'border': _hex(colors.get('border'), palette['border']),
+                'accent': _hex(colors.get('focus') or colors.get('accent'), palette['accent']),
+                'select': _hex(colors.get('selected'), palette['select']),
+                'panel': _hex(colors.get('surface'), palette['panel']),
+            }
+        )
     if contrast(palette['bg'], palette['fg']) < 4.5:
         palette['fg'] = readable_on(palette['bg'])
     if contrast(palette['bg'], palette['muted']) < 3.0:

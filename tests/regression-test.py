@@ -3,6 +3,7 @@
 
 Run: QT_QPA_PLATFORM=offscreen python3 tests/regression-test.py
 """
+
 import importlib.util
 import os
 import sys
@@ -14,8 +15,12 @@ TMP = tempfile.TemporaryDirectory(prefix='nirunote-regression-')
 BASE = Path(TMP.name)
 os.environ['QT_QPA_PLATFORM'] = os.environ.get('QT_QPA_PLATFORM', 'offscreen')
 os.environ['HOME'] = str(BASE / 'home')
-for key, sub in (('XDG_CONFIG_HOME', 'config'), ('XDG_STATE_HOME', 'state'),
-                 ('XDG_DATA_HOME', 'data'), ('XDG_CACHE_HOME', 'cache')):
+for key, sub in (
+    ('XDG_CONFIG_HOME', 'config'),
+    ('XDG_STATE_HOME', 'state'),
+    ('XDG_DATA_HOME', 'data'),
+    ('XDG_CACHE_HOME', 'cache'),
+):
     os.environ[key] = str(BASE / sub)
 Path(os.environ['HOME']).mkdir()
 
@@ -35,6 +40,7 @@ qapp.setOrganizationName('NIRU-REGRESSION')
 
 class FakeDictionary:
     """Stands in for Hunspell: the spell-ready rehighlight is what used to dirty documents."""
+
     def __init__(self, base, personal=None):
         self.base = str(base)
         self.personal_words = set()
@@ -132,7 +138,9 @@ def t1_open_paths_stay_clean():
     # External reload of an unmodified document.
     doc.write_text('# Title\n\nChanged on disk.\n', encoding='utf-8')
     w.external_file_changed(str(doc))
-    assert w.editor.toPlainText().startswith('# Title\n\nChanged on disk.'), 'external reload failed'
+    assert w.editor.toPlainText().startswith('# Title\n\nChanged on disk.'), (
+        'external reload failed'
+    )
     assert_clean(w, 'external reload')
     dispose(w)
     # Scratchpad.
@@ -172,6 +180,7 @@ def count_recovery_writes(w):
         if Path(path) == recovery_file():
             writes.append(time.monotonic())
         return original(path, text)
+
     w.atomic_write = counting
     return writes
 
@@ -210,6 +219,7 @@ def t2_recovery_written_only_after_changes():
 
 class TimerCounter(QObject):
     """Counts every QTimerEvent delivered in the application (all timers, Qt's own included)."""
+
     def __init__(self):
         super().__init__()
         self.count = 0
@@ -253,12 +263,19 @@ def t3_idle_has_no_periodic_timers():
 @test
 def t4_spelling_status_is_readable():
     import spell as spellmod
+
     sst = spellmod.spell_status_text
     assert sst(False, 'off') == 'Spelling: off'
     assert sst(True, 'ready', FakeDictionary('/x/sv_SE')) == 'Spelling: sv'
     assert sst(True, 'ready', FakeDictionary('/x/en_US')) == 'Spelling: en'
-    assert sst(True, 'unavailable', None, 'install hunspell-sv') == 'Spelling: unavailable (install hunspell-sv)'
-    assert sst(True, 'ready', FakeDictionary('/x/sv_SE'), large=True) == 'Spelling: paused (large document)'
+    assert (
+        sst(True, 'unavailable', None, 'install hunspell-sv')
+        == 'Spelling: unavailable (install hunspell-sv)'
+    )
+    assert (
+        sst(True, 'ready', FakeDictionary('/x/sv_SE'), large=True)
+        == 'Spelling: paused (large document)'
+    )
     old_path = os.environ['PATH']
     empty = BASE / 'empty-bin'
     empty.mkdir(exist_ok=True)
@@ -291,7 +308,9 @@ def t4_spelling_status_is_readable():
         w.stat_spell.mousePressEvent(None)
     finally:
         mod.Prefs.exec = original
-    assert opened and isinstance(opened[0], mod.Prefs), 'spelling status click did not open Preferences'
+    assert opened and isinstance(opened[0], mod.Prefs), (
+        'spelling status click did not open Preferences'
+    )
     for name in ('sv_SE.dic', 'sv_SE.aff'):
         (dict_dir / name).unlink()
     dispose(w)
@@ -312,7 +331,9 @@ def u1_modified_follows_undo():
     assert recovery_file().exists(), 'recovery not written after edit'
     w.editor.undo()
     spin(0.3)
-    assert not doc.isModified() and not w.dirty.text(), 'undo to the saved text must clear the marker'
+    assert not doc.isModified() and not w.dirty.text(), (
+        'undo to the saved text must clear the marker'
+    )
     assert w.stat_left.text().startswith('Saved'), w.stat_left.text()
     assert not recovery_file().exists(), 'recovery kept after undo to saved text'
     w.editor.redo()
@@ -340,6 +361,7 @@ def u1_modified_follows_undo():
 
 def write_snapshot(text, path=None, extra=None):
     import json
+
     recovery_file().parent.mkdir(parents=True, exist_ok=True)
     data = {'text': text, 'path': str(path) if path else None}
     data.update(extra or {})
@@ -359,6 +381,7 @@ def answer_modal(action, nested=None):
         if nested:
             QTimer.singleShot(50, lambda: nested(qapp.activeModalWidget()))
         action(dialog)
+
     QTimer.singleShot(0, drive)
     return seen
 
@@ -366,8 +389,13 @@ def answer_modal(action, nested=None):
 @test
 def u2_recovery_prompt():
     import recovery as rec
+
     left, right, marks = rec.side_by_side('a\nb\nc', 'a\nB\nc\nd')
-    assert marks == [' ', '~', ' ', '+'] and right[-1] == 'd' and left[-1] == '', (left, right, marks)
+    assert marks == [' ', '~', ' ', '+'] and right[-1] == 'd' and left[-1] == '', (
+        left,
+        right,
+        marks,
+    )
     assert not rec.owner_alive({'pid': os.getpid()})
 
     doc = fixture('crash.md', '# Crash\n\nsaved line\n')
@@ -393,6 +421,7 @@ def u2_recovery_prompt():
         assert 'crash.md' in labels and '+13 compared with the file on disk' in labels, labels
         dialog.compare_button.click()
         dialog.restore_button.click()
+
     answer_modal(restore_after_compare, nested=close_compare)
     assert w.offer_recovery() == 'restore'
     assert compared, 'Compare dialog did not open'
@@ -407,7 +436,9 @@ def u2_recovery_prompt():
     answer_modal(lambda dialog: dialog.discard_button.click())
     assert w.offer_recovery() == 'discard'
     backup = recovery_file().with_name('recovery-discarded.json')
-    assert not recovery_file().exists() and 'lost text?' in backup.read_text(), 'discard lost the text'
+    assert not recovery_file().exists() and 'lost text?' in backup.read_text(), (
+        'discard lost the text'
+    )
     assert not w.editor.toPlainText()
     dispose(w)
 
@@ -444,8 +475,14 @@ def u2_recovery_prompt():
 @test
 def u3_outline():
     from markdown import extract_headings
+
     text = '# One\n\npara\n## Two ##\n```\n# not a heading\n```\n### Three\n#nospace\n######  Six\n'
-    assert extract_headings(text) == [(0, 1, 'One'), (3, 2, 'Two'), (7, 3, 'Three'), (9, 6, 'Six')], extract_headings(text)
+    assert extract_headings(text) == [
+        (0, 1, 'One'),
+        (3, 2, 'Two'),
+        (7, 3, 'Three'),
+        (9, 6, 'Six'),
+    ], extract_headings(text)
     assert extract_headings('') == []
     w = window()
     w.word_wrap = True
@@ -459,6 +496,7 @@ def u3_outline():
         dialog.search.setText('targ')
         assert dialog.list.count() == 1, dialog.list.count()
         dialog.search.returnPressed.emit()
+
     answer_modal(filter_and_enter)
     w.outline()
     assert w.editor.textCursor().blockNumber() == 2, w.editor.textCursor().blockNumber()
@@ -466,9 +504,15 @@ def u3_outline():
     from PySide6.QtGui import QKeyEvent
 
     def arrow_down(dialog):
-        QApplication.sendEvent(dialog.search, QKeyEvent(QEvent.Type.KeyPress, mod.Qt.Key.Key_Down, mod.Qt.KeyboardModifier.NoModifier))
+        QApplication.sendEvent(
+            dialog.search,
+            QKeyEvent(
+                QEvent.Type.KeyPress, mod.Qt.Key.Key_Down, mod.Qt.KeyboardModifier.NoModifier
+            ),
+        )
         assert dialog.list.currentRow() == 1, dialog.list.currentRow()
         dialog.jump()
+
     answer_modal(arrow_down)
     w.outline()
     assert w.editor.textCursor().blockNumber() == 2
@@ -492,7 +536,10 @@ def u4_code_blocks_are_highlighted():
 
     for number in (1, 2, 3, 4):
         ranges = formats(number)
-        assert ranges and all(r.format.background().color() == panel for r in ranges), (number, ranges)
+        assert ranges and all(r.format.background().color() == panel for r in ranges), (
+            number,
+            ranges,
+        )
         assert all(r.format.fontFixedPitch() for r in ranges), number
     # Inside the fence no heading size or emphasis is applied.
     assert all(not r.format.fontItalic() and r.format.fontWeight() <= 400 for r in formats(2))
@@ -503,7 +550,9 @@ def u4_code_blocks_are_highlighted():
     c = mod.QTextCursor(doc.findBlockByNumber(5))
     c.insertText('```\n')
     qapp.processEvents()
-    assert all(r.format.background().color() == panel for r in formats(6)), 'unclosed fence not highlighted'
+    assert all(r.format.background().color() == panel for r in formats(6)), (
+        'unclosed fence not highlighted'
+    )
     w.set_modified(False)
     dispose(w)
 
