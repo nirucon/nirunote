@@ -1,60 +1,217 @@
 # NIRUNOTE
 
-Minimal, keyboard-oriented Markdown editor for Linux, built with Python and PySide6.
-Designed for personal desktop workflows, especially Arch/Omarchy and Debian.
+Minimal, keyboard-oriented Markdown editor with a styled preview.
 
-**Version:** 0.6.0 — honest, quiet editor release. The project is a personal application, shared as-is.
+**Status: beta** · Part of the [NIRUX](https://github.com/nirucon/nirux) suite · [MIT License](LICENSE)
+
+**Version:** 0.6.0
+
+![NIRUNOTE](docs/screenshots/main.png)
+
+## About
+
+NIRUNOTE is the small, quiet editor I write notes and documentation in. It
+edits plain Markdown files, shows a styled preview, and stays out of the way:
+no accounts, no cloud, no database. It is written in Python with PySide6
+(Qt 6).
+
+It is a NIRU app first and a NIRUX extra second. With NIRUX installed it
+follows the active NIRUX theme; elsewhere (for example on Arch/Omarchy with
+Wayland) it is a normal Qt application.
 
 ## Features
 
-- Markdown editing and styled Preview, with safe limited inline HTML (`small`, `br`, `kbd`, `sub`, `sup`, `mark`).
-- Dark, light and Satie themes, plus Follow NIRUX when NIRUX is detected; focus mode and configurable text width.
-- Find/replace, headings navigation, recent files, command palette and cancellable Quick Open.
-- Safe Preview links (http, https, mailto) and a small, inert inline-HTML subset.
-- Background spell probing, recovery writes and large-document Preview rendering with a clear status line.
-- Accessibility names and keyboard-complete dialogs; exact saved/recovered state remains visible.
-- Local spell checking with Hunspell when installed and a dictionary is available.
-- Recovery snapshots written only after real edits (about 2 s after typing stops, at most every 10 s), with a Restore / Discard / Compare prompt after a crash; atomic saves; external file-change notification.
-- Heading outline (Ctrl+Shift+O) with type-to-filter, and monospace highlighting of fenced code blocks.
+- Markdown editing and a styled Preview (`Ctrl+Shift+E`), with a small, inert
+  inline-HTML subset (`small`, `br`, `kbd`, `sub`, `sup`, `mark`) and safe
+  links (http, https, mailto only).
+- Dark, light and Satie themes, plus **Follow NIRUX** when NIRUX is detected;
+  focus mode and configurable writing width (Narrow, Normal, Wide, Full width).
+- Find/replace, heading outline with type-to-filter (`Ctrl+Shift+O`), go to
+  heading, recent files, Quick Open and a command palette.
+- Monospace highlighting of fenced code blocks.
+- Local spell checking with Hunspell when it and a dictionary are installed;
+  the status line says exactly what is missing ("Spelling: unavailable
+  (install hunspell-sv)").
+- Crash recovery: snapshots are written only after real edits (about 2 s after
+  typing stops, at most every 10 s), and after a crash you get Restore /
+  Discard / Compare. Nothing is written while idle.
+- Atomic saves and a notice when the file changes on disk.
+- A separate scratchpad instance (`--scratchpad`) with its own note file.
+- Keyboard-complete dialogs with accessibility names.
 
-## Install
+## Requirements
 
-Dependencies: Python 3, PySide6 (Qt Widgets). Optional: Hunspell.
+- Linux with Python 3 and PySide6 (Qt Widgets). CI runs on Python 3.12, 3.13
+  and 3.14.
+- The installer can install PySide6 with `pacman` (Arch) or `apt-get`
+  (Debian). On Void, install Python 3 and PySide6 yourself first; the
+  installer does not use `xbps-install`.
+- Optional: `hunspell` for spell checking, and `curl` or `wget` so the
+  installer can fetch the Swedish dictionary.
 
-```bash
+## Installation
+
+### With NIRUX
+
+NIRUNOTE is an optional extra, not part of a normal `nirux install`:
+
+```sh
+nirux extras install nirunote
+nirux extras update            # later: update selected extras to the pinned version
+```
+
+NIRUX downloads the pinned release tag, verifies its SHA-256 and runs the
+project's own `install.sh`.
+
+### Standalone
+
+```sh
 ./install.sh
 nirunote
 ```
 
-The installer targets `~/.local/share/nirunote` and `~/.local/bin` and checks startup before activating the release. It may use your distribution's package manager for missing PySide6 dependencies. The optional Swedish spelling dictionary is downloaded to the user-local dictionary directory. Review `install.sh` before running it.
+The installer:
 
-For a source-only run (with PySide6 installed):
+1. installs PySide6 with your package manager if it is missing (may use
+   `sudo`);
+2. downloads a user-local Swedish Hunspell dictionary (from
+   [yeager/hunspell-sv](https://github.com/yeager/hunspell-sv), with its
+   license) to `~/.local/share/nirunote/dictionaries/` if one is not already
+   working; no `sudo` is used for this;
+3. stages the release, runs `--core-self-test`, the spell self-test and an
+   offscreen GUI smoke test, and only then activates it under
+   `~/.local/share/nirunote/current`;
+4. writes the `~/.local/bin/nirunote` launcher, desktop entry and icon, and
+   rolls back if the installed launcher fails `--version`.
 
-```bash
-python3 nirunote/app.py
+Review `install.sh` before running it. To run from source without installing
+(PySide6 required): `./run.sh` or `python3 nirunote/app.py`.
+
+## Usage
+
+```sh
+nirunote                 # restore the last session
+nirunote FILE.md         # open a file
+nirunote --open FILE.md  # the same, explicit
+nirunote --new           # start with an empty document
+nirunote --focus         # start in focus mode
+nirunote --scratchpad    # open the scratchpad note
+nirunote --version
 ```
 
-## Tests
+| Key | Action |
+|---|---|
+| `Ctrl+N` / `Ctrl+Shift+N` | New / new from clipboard |
+| `Ctrl+O` / `Ctrl+P` | Open / Quick Open |
+| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
+| `Ctrl+Q` | Quit |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `Ctrl+Shift+C` | Copy all |
+| `Ctrl+Shift+V` | Paste as plain text |
+| `Ctrl+Shift+D` | Duplicate line |
+| `Ctrl+F` / `Ctrl+H` | Find / replace |
+| `Ctrl+B` / `Ctrl+I` / `Ctrl+K` | Bold / italic / link |
+| `Ctrl+Shift+X` | Toggle checkbox |
+| `Ctrl+Shift+8` / `Ctrl+Shift+7` / `Ctrl+Shift+.` | Bullet list / numbered list / quote |
+| `Ctrl+G` / `Ctrl+Shift+O` | Go to heading / outline |
+| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+Shift+E` | Toggle Edit / Preview |
+| `F11` | Focus mode |
+| `Ctrl+Shift+F` | Toggle floating window |
+| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Text size up / down / reset |
 
-```bash
-python3 -m compileall -q nirunote gui-smoke-test.py
-python3 nirunote/app.py --core-self-test
-QT_QPA_PLATFORM=offscreen python3 gui-smoke-test.py
-QT_QPA_PLATFORM=offscreen python3 tests/regression-test.py
-```
+## Configuration
 
-Development formatting uses `ruff format` (settings in `pyproject.toml`); ruff is not a runtime dependency.
+All settings are in the app: **View** (theme, writing width, word wrap,
+current-line highlight, text size) and **View → Preferences…**. The default
+theme is Follow NIRUX when NIRUX is detected, dark otherwise. The default save
+folder is `~/Documents`.
 
-The offscreen smoke test does not substitute for real Wayland/Hyprland GUI testing. In particular, test Preview scrolling through long documents before publishing a release.
+## Files and paths
 
-## Data and privacy
+| Path | Purpose |
+|---|---|
+| `~/.local/bin/nirunote` | Launcher |
+| `~/.local/share/nirunote/releases/VERSION/` | Installed releases (`current` points to the active one) |
+| `~/.local/share/nirunote/dictionaries/` | User-local Hunspell dictionary |
+| `~/.config/NIRU/NIRUNOTE.conf` | Preferences (Qt `QSettings`, organization `NIRU`) |
+| `~/.local/state/nirunote/recovery.json` | Crash recovery snapshot (`scratchpad-recovery.json` for the scratchpad) |
+| `~/.local/state/nirunote/scratchpad.md` | The scratchpad note |
+| `~/.local/state/nirunote/launcher.log` | Launcher log |
 
-Documents remain local; NIRUNOTE does not upload document content. Hunspell uses a local subprocess. Installer may fetch a spelling dictionary. Settings and recovery state use XDG user directories. Review the installation script and third-party dictionary license.
+Documents stay local and are never uploaded. Hunspell runs as a local
+subprocess. The only network access is the installer's dictionary download.
+
+## Troubleshooting
+
+- **"Spelling: unavailable".** Install `hunspell` and a dictionary
+  (`hunspell-sv`, `hunspell-en-us` or your distribution's equivalent); system
+  dictionaries are found as well as the user-local one. The status text is
+  clickable.
+- **The window does not start.** Check `~/.local/state/nirunote/launcher.log`
+  and run `nirunote --version`.
+- **A recovery prompt after a crash.** Choose Compare first if you are unsure
+  which version to keep.
 
 ## Uninstall
 
-Run `./uninstall.sh` and review the script first. Back up your documents and recovery state independently.
+```sh
+./uninstall.sh
+```
 
-## Author and license
+This removes the launcher, desktop entry, icon and `~/.local/share/nirunote`
+(releases and dictionary). Settings and recovery state are kept; remove
+`~/.config/NIRU/NIRUNOTE.conf` and `~/.local/state/nirunote` by hand only if
+you also want to erase them. Your documents are never touched; back them up
+independently.
 
-Ing Leif Nicklas Rudolfsson. MIT License; see [LICENSE](LICENSE).
+## Building from source
+
+There is nothing to compile. The checks CI runs:
+
+```sh
+python3 -m compileall -q nirunote gui-smoke-test.py tests
+QT_QPA_PLATFORM=offscreen python3 nirunote/app.py --core-self-test
+QT_QPA_PLATFORM=offscreen python3 gui-smoke-test.py
+QT_QPA_PLATFORM=offscreen python3 tests/regression-test.py
+python3 scripts/release-check.py   # version strings and trailing whitespace
+```
+
+Formatting uses `ruff format` (settings in `pyproject.toml`); ruff is not a
+runtime dependency. The offscreen smoke test does not replace real desktop
+testing; test Preview scrolling through long documents before a release.
+Release history: [CHANGELOG.md](CHANGELOG.md) and
+[RELEASE-NOTES.md](RELEASE-NOTES.md).
+
+## Status, disclaimer and how it's made
+
+**Status: beta.** Editing, preview, recovery and spelling work and are covered by regression tests on three Python versions. The offscreen tests do not replace real desktop testing, and the preview is deliberately simple.
+
+NIRUX and every niru* project are made by me, Nicklas Rudolfsson
+([@nirucon](https://github.com/nirucon)), for me. They are tailored to my own
+needs, preferences and workflows, on my own machines. If they fit yours too,
+that's a nice bonus.
+
+- **Free and open source.** Anyone is free to use, study, change and share
+  it under the [MIT License](LICENSE).
+- **No guarantees.** There is no warranty of any kind. Use it at your own
+  risk, read what you install and keep backups of anything that matters.
+- **How it's made.** Some of these projects I built from scratch by hand. In
+  more recent releases I have used Claude, Anthropic's AI, to do much of the
+  heavy lifting under my direction: I decide what to build and how it should
+  behave, and I test it on my own machines. It saves me a lot of time, and
+  the result is quite OK.
+- **Alpha, beta, dev, and maybe forever.** Most things here are alpha, beta
+  or dev, and may stay that way. Maybe one day there will be a real stable
+  release, but given how fast development moves, and how I am as a person,
+  maybe never :)
+
+| Label | Meaning |
+|---|---|
+| dev | Under active construction; may not build, install or work yet. |
+| alpha | Works on my machines, but incomplete or rough; expect breaking changes. |
+| beta | In daily use on my machines and mostly complete; rough edges remain. |
+
+## License
+
+MIT License, see [LICENSE](LICENSE). Copyright (c) 2026 Ing Leif Nicklas Rudolfsson.
