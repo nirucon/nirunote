@@ -90,7 +90,7 @@ Review `install.sh` before running it. To run from source without installing
 ## Usage
 
 ```sh
-nirunote                 # restore the last session
+nirunote                 # reopen the last document (if enabled in Preferences)
 nirunote FILE.md         # open a file
 nirunote --open FILE.md  # the same, explicit
 nirunote --new           # start with an empty document
