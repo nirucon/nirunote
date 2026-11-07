@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="0.6.0"
+VERSION="0.6.1"
 APP="nirunote"
 SRC_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BASE="${HOME}/.local/share/nirunote"
@@ -16,6 +16,21 @@ STATE_DIR="${HOME}/.local/state/nirunote"
 echo "NIRUNOTE ${VERSION} installer"
 echo "-------------------------"
 
+# Without a terminal nobody can answer a package manager prompt. --yes,
+# NIRUNOTE_ASSUME_YES=1 or NIRUX_ASSUME_YES=1 (set by `nirux extras install`
+# when it runs unattended) is the consent to install missing packages.
+ASSUME_YES=0
+[ "${NIRUNOTE_ASSUME_YES:-${NIRUX_ASSUME_YES:-0}}" = 1 ] && ASSUME_YES=1
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes) ASSUME_YES=1 ;;
+    -h|--help) echo "usage: ./install.sh [--yes]"; exit 0 ;;
+    *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
+  esac
+done
+PACMAN_YES=(); XBPS_YES=()
+if [ "$ASSUME_YES" = 1 ]; then PACMAN_YES=(--noconfirm); XBPS_YES=(-y); fi
+
 need_pyside() {
   python3 - <<'PY' >/dev/null 2>&1
 import PySide6
@@ -24,11 +39,16 @@ PY
 
 if ! command -v python3 >/dev/null 2>&1 || ! need_pyside; then
   echo "Installing required runtime dependencies..."
+  if [ ! -t 0 ] && [ "$ASSUME_YES" != 1 ]; then
+    echo "No terminal to answer the package manager; rerun in a terminal or with --yes if this fails."
+  fi
   if command -v pacman >/dev/null 2>&1; then
-    sudo pacman -S --needed python pyside6
+    sudo pacman -S --needed "${PACMAN_YES[@]}" python pyside6
+  elif command -v xbps-install >/dev/null 2>&1; then
+    sudo xbps-install -S "${XBPS_YES[@]}" python3 python3-pyside6 python3-pyside6-gui python3-pyside6-widgets
   elif command -v apt-get >/dev/null 2>&1; then
     sudo apt-get update
-    sudo apt-get install -y python3 python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets
+    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets
   else
     echo "ERROR: Unsupported package manager. Install Python 3 and PySide6, then rerun." >&2
     exit 1
@@ -117,10 +137,8 @@ echo "Installing release ${VERSION}..."
 # Keep the previous same-version installation available for rollback.
 BACKUP_DIR="${RELEASE_DIR}.previous"
 if [ -e "$RELEASE_DIR" ]; then
-  if [ -e "$BACKUP_DIR" ]; then
-    echo "ERROR: existing backup at $BACKUP_DIR; refusing to overwrite." >&2
-    exit 1
-  fi
+  # Only one same-version backup is kept: the release being replaced now.
+  rm -rf "$BACKUP_DIR"
   mv "$RELEASE_DIR" "$BACKUP_DIR"
 fi
 if ! mv "$STAGE" "$RELEASE_DIR"; then

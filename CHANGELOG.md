@@ -1,3 +1,9 @@
+## 0.6.1 — 2026-11-07 — Installer for fresh systems
+
+- `./install.sh --yes`, `NIRUNOTE_ASSUME_YES=1` or `NIRUX_ASSUME_YES=1` installs missing packages without a prompt (unattended `nirux extras install`).
+- Void Linux dependencies through `xbps-install`.
+- A repeated same-version install replaces the old `.previous` backup instead of refusing.
+
 ## 0.4.6 — 2026-10-10 — Robust Qt smoke tests
 
 - Remove invalid offscreen initial-focus assumption.

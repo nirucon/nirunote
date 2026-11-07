@@ -1,4 +1,4 @@
-# NIRUNOTE 0.6.0 release contract
+# NIRUNOTE 0.6.1 release contract
 
 - Baseline: 0.5.0. No document format change. Settings keys and defaults are unchanged.
 - Recovery JSON keeps `text` and `path`; 0.6.0 adds `saved_at`, `app_version` and `pid`, which 0.5.0 ignores. 0.6.0 reads 0.5.0 snapshots. The scratchpad instance uses `scratchpad-recovery.json`; discarded text is kept once in `recovery-discarded.json`.

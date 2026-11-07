@@ -4,7 +4,7 @@ Minimal, keyboard-oriented Markdown editor with a styled preview.
 
 **Status: beta** · Part of the [NIRUX](https://github.com/nirucon/nirux) suite · [MIT License](LICENSE)
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 
 ![NIRUNOTE](docs/screenshots/main.png)
 
@@ -43,9 +43,9 @@ Wayland) it is a normal Qt application.
 
 - Linux with Python 3 and PySide6 (Qt Widgets). CI runs on Python 3.12, 3.13
   and 3.14.
-- The installer can install PySide6 with `pacman` (Arch) or `apt-get`
-  (Debian). On Void, install Python 3 and PySide6 yourself first; the
-  installer does not use `xbps-install`.
+- The installer can install Python 3 and PySide6 with `pacman` (Arch),
+  `xbps-install` (Void, since 0.6.1) or `apt-get` (Debian). Without a
+  terminal it cannot answer the package manager; use `./install.sh --yes`.
 - Optional: `hunspell` for spell checking, and `curl` or `wget` so the
   installer can fetch the Swedish dictionary.
 
@@ -156,7 +156,8 @@ subprocess. The only network access is the installer's dictionary download.
 ## Uninstall
 
 ```sh
-./uninstall.sh
+nirux extras uninstall nirunote   # with NIRUX
+./uninstall.sh                    # standalone, from a checkout
 ```
 
 This removes the launcher, desktop entry, icon and `~/.local/share/nirunote`

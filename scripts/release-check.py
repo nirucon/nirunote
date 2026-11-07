@@ -25,6 +25,12 @@ for folder in ('nirunote', 'scripts', 'tests'):
             for line_no, line in enumerate(path.read_text().splitlines(), 1):
                 if line.endswith((' ', '\t')):
                     errors.append(f'{path.relative_to(root)}:{line_no}: trailing whitespace')
+# Installer contract (0.6.1): fresh Arch, Void and Debian, also unattended.
+installer = (root / 'install.sh').read_text()
+for needle, why in (('xbps-install', 'Void dependency branch'), ('NIRUX_ASSUME_YES', 'unattended consent'),
+                    ('--noconfirm', 'pacman must not ask after consent'), ('noninteractive', 'apt without prompts')):
+    if needle not in installer:
+        errors.append(f'install.sh: missing {why} ({needle})')
 if errors:
     print('Release preflight FAILED:\n' + '\n'.join(errors), file=sys.stderr)
     sys.exit(1)

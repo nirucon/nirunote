@@ -1,3 +1,13 @@
+# NIRUNOTE 0.6.1
+
+Installer fixes found by clean installs on fresh Arch, Void and Debian systems.
+
+- Unattended installs work: `./install.sh --yes` (or `NIRUNOTE_ASSUME_YES=1`, or `NIRUX_ASSUME_YES=1`, which `nirux extras install` sets without a terminal) installs Python 3 and PySide6 without a prompt. Before, pacman's question was answered by an empty stdin and the install failed.
+- Void Linux: the installer installs `python3-pyside6`, `python3-pyside6-gui` and `python3-pyside6-widgets` with `xbps-install` instead of stopping with "Unsupported package manager".
+- Installing the same version a third time no longer stops at an existing `.previous` backup.
+
+No application, document or settings changes.
+
 # NIRUNOTE 0.6.0
 
 Correctness, energy and maintainability release built from 0.5.0.
