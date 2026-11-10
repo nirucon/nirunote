@@ -4,7 +4,7 @@ Minimal, keyboard-oriented Markdown editor with a styled preview.
 
 **Status: beta** · Part of the [NIRUX](https://github.com/nirucon/nirux) suite · [MIT License](LICENSE)
 
-**Version:** 0.7.0
+**Version:** 0.7.1
 
 ![NIRUNOTE](docs/screenshots/main.png)
 

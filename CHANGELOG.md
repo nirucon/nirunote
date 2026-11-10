@@ -1,3 +1,9 @@
+## 0.7.1 (2026-11-10): Headings stay in view while images load
+
+- Opening at a heading (`--heading`, a link or the outline) keeps that heading
+  at the top when remote images above it finish loading and change the page
+  height.
+
 ## 0.7.0 (2026-11-10): A complete Preview and a read-only viewer
 
 - New Markdown renderer for the Preview (no new dependency): CommonMark block

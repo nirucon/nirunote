@@ -1,3 +1,7 @@
+# NIRUNOTE 0.7.1
+
+- A heading opened with `--heading`, a link or the outline stays at the top of the Preview when remote images above it finish loading.
+
 # NIRUNOTE 0.7.0
 
 A complete Markdown Preview, a read-only viewer for the NIRUX manual, and less work per document.

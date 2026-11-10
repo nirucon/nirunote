@@ -225,10 +225,17 @@ class PreviewBrowser(QTextBrowser):
 
     def _refresh_images(self):
         # Re-run layout so the fetched images replace their placeholders.
+        # Images above the view change its height: when the view still shows
+        # the heading it was sent to, go back to that heading, else keep the
+        # scroll position.
         bar = self.verticalScrollBar()
         value = bar.value()
+        held = self.owner._anchor_hold
         self.owner._apply_preview_html(self.owner._preview_html, force=True)
-        QTimer.singleShot(0, lambda: bar.setValue(value))
+        if held and held[1] == value:
+            QTimer.singleShot(0, lambda a=held[0]: self.owner.scroll_preview_to(a))
+        else:
+            QTimer.singleShot(0, lambda: bar.setValue(value))
 
     def reset_images(self):
         self.images.clear()
@@ -249,6 +256,7 @@ class PreviewMixin:
         self.preview_headings = []
         self._preview_key = None
         self._pending_anchor = None
+        self._anchor_hold = None
         self._nav_history = []
         return self.preview
 
@@ -327,6 +335,7 @@ class PreviewMixin:
                 return False
             anchor = self.preview_headings[index][3]
         self.preview.scrollToAnchor(anchor)
+        self._anchor_hold = (anchor, self.preview.verticalScrollBar().value())
         return True
 
     # Rendering -------------------------------------------------------------
