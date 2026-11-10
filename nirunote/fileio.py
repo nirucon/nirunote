@@ -161,7 +161,7 @@ class FileMixin:
             return
         if self._external_mtime == mt:
             return
-        if not self.is_modified():
+        if self.read_only or not self.is_modified():
             self.load(self.path)
             return
         self._external_prompt = True
@@ -287,18 +287,21 @@ class FileMixin:
             self.path = str(path)
             self.title.setText(path.name)
             self.set_modified(False)
-            self.clear_recovery()
-            self.add_recent(path)
             self.watch_current()
-            self.last_document = self.path
-            self.save_settings()
+            if not self.read_only:
+                self.clear_recovery()
+                self.add_recent(path)
+                self.last_document = self.path
+                self.save_settings()
             self.update_document_stats()
             pos = int(self.settings.value('cursor/' + str(path.resolve()), 0))
             c = self.editor.textCursor()
             c.setPosition(min(pos, len(text)))
             self.editor.setTextCursor(c)
             self.cursor_changed()
-            self.editor.setFocus()
+            (self.preview if self.previewing else self.editor).setFocus()
+            if self.read_only:
+                self.setWindowTitle(f'{path.name} · read-only · NIRUNOTE')
             self.update_file_actions()
         except Exception as e:
             self._loading = False
@@ -306,6 +309,9 @@ class FileMixin:
                 neutral_notice(self, 'Open failed', str(e))
 
     def save(self):
+        if self.read_only:
+            self.flash_status('Read-only viewer: saving is off')
+            return False
         if not self.path:
             return self.save_as()
         try:
@@ -328,6 +334,9 @@ class FileMixin:
             return False
 
     def save_as(self):
+        if self.read_only:
+            self.flash_status('Read-only viewer: saving is off')
+            return False
         ext = '.md' if self.default_format == 'md' else '.txt'
         base = (
             Path(self.default_save_folder).expanduser()
@@ -362,6 +371,8 @@ class FileMixin:
         return False
 
     def rename(self):
+        if self.read_only:
+            return None
         if not self.path:
             return self.save_as()
         n, ok = QInputDialog.getText(self, 'Rename', 'New filename:', text=Path(self.path).name)

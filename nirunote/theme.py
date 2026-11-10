@@ -16,6 +16,12 @@ DARK = {
     'select': '#333333',
     'line': '#0b0b0b',
     'md': '#6f6f6f',
+    'red': '#c97a7a',
+    'green': '#8fb08f',
+    'yellow': '#c6b37f',
+    'blue': '#84a2c0',
+    'magenta': '#ad94b8',
+    'cyan': '#84afad',
 }
 
 
@@ -116,7 +122,11 @@ def _kitty(path: Path) -> dict[str, str]:
             'foreground',
             'color0',
             'color1',
+            'color2',
+            'color3',
             'color4',
+            'color5',
+            'color6',
             'color8',
             'selection_background',
         }:
@@ -148,6 +158,16 @@ def load_nirux_palette(paths: dict[str, Path] | None = None) -> dict[str, str]:
                 'panel': mix(bg, fg, 0.035),
             }
         )
+    for key, name in (
+        ('red', 'color1'),
+        ('green', 'color2'),
+        ('yellow', 'color3'),
+        ('blue', 'color4'),
+        ('magenta', 'color5'),
+        ('cyan', 'color6'),
+    ):
+        if kitty.get(name):
+            palette[key] = _hex(kitty.get(name), palette.get(key, '#888888'))
     if colors:
         palette.update(
             {
@@ -168,6 +188,9 @@ def load_nirux_palette(paths: dict[str, Path] | None = None) -> dict[str, str]:
         palette['panel'] = mix(palette['bg'], palette['fg'], 0.08)
     if contrast(palette['select'], palette['fg']) < 3.0:
         palette['select'] = mix(palette['bg'], palette['accent'], 0.30)
+    for key in ('red', 'green', 'yellow', 'blue', 'magenta', 'cyan'):
+        if key in palette and contrast(palette['bg'], palette[key]) < 3.0:
+            palette[key] = mix(palette[key], palette['fg'], 0.45)
     palette['md'] = mix(palette['muted'], palette['accent'], 0.20)
     palette['line'] = mix(palette['bg'], palette['fg'], 0.06)
     return palette

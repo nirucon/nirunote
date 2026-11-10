@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QFileSystemWatcher, QSettings, Qt, QTimer
+from PySide6.QtCore import QEvent, QFileSystemWatcher, QSettings, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -34,7 +34,6 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QStackedWidget,
-    QTextBrowser,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -53,7 +52,7 @@ try:
     from .dialogs import CompareDialog, Prefs, RecoveryDialog, neutral_unsaved  # noqa: F401 (API)
     from .editor import MarkdownHighlighter, NoteEditor
     from .fileio import FileMixin, RecoveryMixin, RecoveryStore
-    from .markdown import extract_headings, markdown_to_html
+    from .markdown import extract_headings, find_heading, markdown_to_html, slugify
     from .preview import PreviewMixin
     from .settings import SettingsMixin
     from .spell import HunspellDictionary, SpellResult, dictionary_candidates  # noqa: F401
@@ -75,7 +74,7 @@ except ImportError:
     from dialogs import CompareDialog, Prefs, RecoveryDialog, neutral_unsaved  # noqa: F401 (API)
     from editor import MarkdownHighlighter, NoteEditor
     from fileio import FileMixin, RecoveryMixin, RecoveryStore
-    from markdown import extract_headings, markdown_to_html
+    from markdown import extract_headings, find_heading, markdown_to_html, slugify
     from preview import PreviewMixin
     from settings import SettingsMixin
     from spell import HunspellDictionary, SpellResult, dictionary_candidates  # noqa: F401
@@ -89,9 +88,14 @@ except ImportError:
 class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
     """The NIRUNOTE window: editing, spelling, status and menus; see the mixins for the rest."""
 
-    def __init__(self, skip_session=False, scratchpad=False):
+    def __init__(self, skip_session=False, scratchpad=False, read_only=False):
         super().__init__()
         self.scratchpad = scratchpad
+        # A viewer (--read-only): no editing, saving, recovery or recent-file
+        # bookkeeping; the source view stays available but cannot be changed.
+        self.read_only = bool(read_only)
+        self._highlight_stale = False
+        self._find_replace = False
         self._startup_recovery = None
         self.settings = QSettings('NIRU', 'NIRUNOTE')
         self.path = None
@@ -137,23 +141,27 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self._build_status_bar()
         self._build_find_bar()
         self.setCentralWidget(root)
-        self.high = MarkdownHighlighter(self.editor.document(), self)
+        # A viewer starts in the Preview; the source is highlighted only when shown.
+        self.high = MarkdownHighlighter(None if self.read_only else self.editor.document(), self)
         self._create_timers()
         self.esc_shortcut = QShortcut(QKeySequence('Escape'), self)
         self.esc_shortcut.activated.connect(lambda: self.set_focus(False) if self.focused else None)
         self.build_menu()
+        if self.read_only:
+            self.apply_read_only()
         self.apply_theme()
         self.configure_theme_watcher()
         self.apply_editor_options()
         self.read_startup_recovery()
         if (
             not skip_session
+            and not self.read_only
             and self.restore_last_document
             and self.last_document
             and Path(self.last_document).is_file()
         ):
             self.load(self.last_document, quiet=True)
-        QTimer.singleShot(0, self.editor.setFocus)
+        QTimer.singleShot(0, lambda: (self.preview if self.previewing else self.editor).setFocus())
 
     def _build_header(self):
         """Top bar: menu, title, copy/preview/focus/save buttons, dirty marker."""
@@ -189,9 +197,16 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.save_btn.clicked.connect(self.save_feedback)
         self.dirty = QLabel('')
         self.dirty.setFixedWidth(16)
+        self.ro_badge = QLabel('READ ONLY')
+        self.ro_badge.setObjectName('readOnlyBadge')
+        self.ro_badge.setAccessibleName('Read-only viewer')
+        self.ro_badge.setToolTip('Opened with --read-only: this window cannot edit or save')
+        self.ro_badge.hide()
         h.addWidget(self.menu_btn)
         h.addStretch()
         h.addWidget(self.title)
+        h.addSpacing(8)
+        h.addWidget(self.ro_badge, 0, Qt.AlignmentFlag.AlignVCenter)
         h.addStretch()
         h.addWidget(self.copy_btn)
         h.addWidget(self.preview_btn)
@@ -220,12 +235,7 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         ph.setContentsMargins(24, 20, 24, 0)
         ph.setSpacing(0)
         ph.addStretch()
-        self.preview = QTextBrowser()
-        self.preview.setAccessibleName('Markdown preview')
-        self.preview.setOpenExternalLinks(False)
-        self.preview.anchorClicked.connect(self.open_preview_link)
-        self.preview.setFrameStyle(0)
-        ph.addWidget(self.preview, 1)
+        ph.addWidget(self._build_preview(), 1)
         ph.addStretch()
         self.stack.addWidget(self.editor_host)
         self.stack.addWidget(self.preview_host)
@@ -270,6 +280,7 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         nxt = QPushButton('↓')
         rep = QPushButton('Replace')
         allb = QPushButton('All')
+        self.replace_buttons = (rep, allb)
         closeb = QPushButton('×')
         fb.addWidget(self.find_input, 2)
         fb.addWidget(self.replace_input, 2)
@@ -288,6 +299,8 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         allb.clicked.connect(self.replace_all)
         closeb.clicked.connect(self.hide_find)
         self.find_input.returnPressed.connect(lambda: self.find_next(False))
+        self.find_input.installEventFilter(self)
+        self.replace_input.installEventFilter(self)
 
     def _create_timers(self):
         """Debounce timers and editor signal connections."""
@@ -322,9 +335,13 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.editor.cursorPositionChanged.connect(self.cursor_changed)
 
     def paste_plain(self):
+        if self.read_only or self.previewing:
+            return
         self.editor.insertPlainText(QApplication.clipboard().text())
 
     def duplicate_line(self):
+        if self.read_only or self.previewing:
+            return
         c = self.editor.textCursor()
         c.beginEditBlock()
         c.movePosition(QTextCursor.MoveOperation.StartOfBlock)
@@ -430,13 +447,20 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.set_focus(not self.focused)
 
     def insert_datetime(self):
+        if self.read_only or self.previewing:
+            return
         self.editor.insertPlainText(time.strftime('%Y-%m-%d %H:%M'))
 
+    def current_headings(self):
+        """[(line, level, title)]: the rendered headings in Preview, else the source's."""
+        if self.previewing and self.preview_headings:
+            return [h[:3] for h in self.preview_headings]
+        return extract_headings(self.editor.toPlainText())
+
     def outline(self):
-        headings = extract_headings(self.editor.toPlainText())
+        headings = self.current_headings()
         if not headings:
-            self.stat_right.setText('No headings')
-            QTimer.singleShot(1500, self.cursor_changed)
+            self.flash_status('No headings', 1500)
             return
         dialog = OutlineDialog(self, headings)
         if dialog.exec() and dialog.line is not None:
@@ -444,24 +468,80 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
 
     def jump_to_line(self, line):
         if self.previewing:
+            for heading in self.preview_headings:
+                if heading[0] == line:
+                    self.scroll_preview_to(heading[3], remember=True)
+                    return
             self.toggle_preview()
         block = self.editor.document().findBlockByNumber(line)
         if not block.isValid():
             return
         self.editor.setTextCursor(QTextCursor(block))
-        self.editor.centerCursor()
+        self.scroll_editor_to_top(block)
         self.editor.setFocus()
 
+    def scroll_editor_to_top(self, block):
+        """Scroll the editor so BLOCK is the first visible line."""
+        bar = self.editor.verticalScrollBar()
+        bar.setValue(min(bar.maximum(), block.firstLineNumber()))
+
     def goto_heading(self):
-        heads = extract_headings(self.editor.toPlainText())
+        heads = self.current_headings()
         if not heads:
-            self.stat_right.setText('No headings')
-            QTimer.singleShot(1500, self.cursor_changed)
+            self.flash_status('No headings', 1500)
             return
         labels = [('  ' * (lvl - 1)) + title for _, lvl, title in heads]
         choice, ok = QInputDialog.getItem(self, 'Go to heading', 'Heading:', labels, 0, False)
         if ok:
             self.jump_to_line(heads[labels.index(choice)][0])
+
+    def open_at_heading(self, wanted):
+        """--heading: show WANTED (heading text or anchor) at the top of the view."""
+        if self.previewing:
+            self._pending_anchor = wanted
+            self.update_preview()
+            return
+        heads = [(n, lvl, title, slugify(title)) for n, lvl, title in self.current_headings()]
+        index = find_heading(heads, wanted)
+        if index is None:
+            self.flash_status(f'No heading: {wanted}', 4000)
+            return
+        line = heads[index][0]
+        block = self.editor.document().findBlockByNumber(line)
+        if block.isValid():
+            self.editor.setTextCursor(QTextCursor(block))
+            QTimer.singleShot(0, lambda b=block: self.scroll_editor_to_top(b))
+
+    def ensure_highlighting(self):
+        """Attach or refresh the source highlighter before the editor is shown."""
+        if self.high.document() is None:
+            document = self.editor.document()
+            modified = document.isModified()
+            self._formatting += 1
+            try:
+                self.high.setDocument(document)
+            finally:
+                self._formatting -= 1
+            # Applying formats is not an edit.
+            if document.isModified() != modified:
+                document.setModified(modified)
+            self._highlight_stale = False
+        elif self._highlight_stale:
+            self._highlight_stale = False
+            self.rehighlight()
+
+    def apply_read_only(self):
+        """Make this window a viewer: no edits, saves or recovery, clearly labelled."""
+        self.editor.setReadOnly(True)
+        self.autosave = False
+        self.ro_badge.show()
+        self.save_btn.hide()
+        self.stat_spell.hide()
+        self.title.setToolTip('Read-only viewer')
+        self.title.mousePressEvent = lambda e: None
+        for action in self.editing_actions:
+            action.setEnabled(False)
+        self.update_document_stats()
 
     def act(self, name, shortcut, fn, menu=None):
         a = QAction(name, self)
@@ -475,6 +555,7 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
 
     def build_menu(self):
         self.menu.clear()
+        self.editing_actions = []
         filem = self.menu.addMenu('File')
         editm = self.menu.addMenu('Edit')
         viewm = self.menu.addMenu('View')
@@ -485,37 +566,46 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.recent_menu = filem.addMenu('Open Recent')
         self.rebuild_recent()
         filem.addSeparator()
-        self.act('Save', 'Ctrl+S', self.save, filem)
-        self.act('Save As…', 'Ctrl+Shift+S', self.save_as, filem)
+        save = self.act('Save', 'Ctrl+S', self.save, filem)
+        save_as = self.act('Save As…', 'Ctrl+Shift+S', self.save_as, filem)
         self.rename_action = self.act('Rename…', None, self.rename, filem)
+        self.editing_actions += [save, save_as, self.rename_action]
         self.folder_action = self.act(
             'Open containing folder', None, self.open_containing_folder, filem
         )
         self.path_action = self.act('Copy file path', None, self.copy_file_path, filem)
         filem.addSeparator()
         self.act('Quit', 'Ctrl+Q', self.close, filem)
-        self.act('Undo', 'Ctrl+Z', self.editor.undo, editm)
-        self.act('Redo', 'Ctrl+Shift+Z', self.editor.redo, editm)
+        edits = [
+            self.act('Undo', 'Ctrl+Z', self.editor.undo, editm),
+            self.act('Redo', 'Ctrl+Shift+Z', self.editor.redo, editm),
+        ]
         editm.addSeparator()
-        self.act('Select all', 'Ctrl+A', self.editor.selectAll, editm)
+        self.act('Select all', 'Ctrl+A', self.select_all, editm)
         self.act('Copy all', 'Ctrl+Shift+C', self.copy_all, editm)
-        self.act('Paste as plain text', 'Ctrl+Shift+V', self.paste_plain, editm)
-        self.act('Duplicate line', 'Ctrl+Shift+D', self.duplicate_line, editm)
+        edits.append(self.act('Paste as plain text', 'Ctrl+Shift+V', self.paste_plain, editm))
+        edits.append(self.act('Duplicate line', 'Ctrl+Shift+D', self.duplicate_line, editm))
         editm.addSeparator()
         self.act('Find…', 'Ctrl+F', self.find, editm)
-        self.act('Replace…', 'Ctrl+H', self.replace, editm)
+        self.act('Find next', 'F3', lambda: self.find_next(False), editm)
+        self.act('Find previous', 'Shift+F3', lambda: self.find_next(True), editm)
+        edits.append(self.act('Replace…', 'Ctrl+H', self.replace, editm))
         editm.addSeparator()
-        self.act('Bold', 'Ctrl+B', lambda: self.wrap_markdown('**', '**'), editm)
-        self.act('Italic', 'Ctrl+I', lambda: self.wrap_markdown('*', '*'), editm)
-        self.act('Link', 'Ctrl+K', self.insert_link, editm)
-        self.act('Checkbox', 'Ctrl+Shift+X', self.toggle_checkbox, editm)
-        self.act('Bullet list', 'Ctrl+Shift+8', lambda: self.prefix_line('- '), editm)
-        self.act('Numbered list', 'Ctrl+Shift+7', lambda: self.prefix_line('1. '), editm)
-        self.act('Quote', 'Ctrl+Shift+.', lambda: self.prefix_line('> '), editm)
+        edits += [
+            self.act('Bold', 'Ctrl+B', lambda: self.wrap_markdown('**', '**'), editm),
+            self.act('Italic', 'Ctrl+I', lambda: self.wrap_markdown('*', '*'), editm),
+            self.act('Link', 'Ctrl+K', self.insert_link, editm),
+            self.act('Checkbox', 'Ctrl+Shift+X', self.toggle_checkbox, editm),
+            self.act('Bullet list', 'Ctrl+Shift+8', lambda: self.prefix_line('- '), editm),
+            self.act('Numbered list', 'Ctrl+Shift+7', lambda: self.prefix_line('1. '), editm),
+            self.act('Quote', 'Ctrl+Shift+.', lambda: self.prefix_line('> '), editm),
+        ]
         editm.addSeparator()
         self.act('Go to heading…', 'Ctrl+G', self.goto_heading, editm)
         self.act('Outline…', 'Ctrl+Shift+O', self.outline, editm)
-        self.act('Insert date / time', None, self.insert_datetime, editm)
+        self.act('Back', 'Alt+Left', self.navigate_back, editm)
+        edits.append(self.act('Insert date / time', None, self.insert_datetime, editm))
+        self.editing_actions += edits
         self.act('Quick Open…', 'Ctrl+P', self.quick_open, filem)
         self.act('Command Palette…', 'Ctrl+Shift+P', self.command_palette, editm)
         self.act('Edit / Preview', 'Ctrl+Shift+E', self.toggle_preview, viewm)
@@ -589,6 +679,9 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         if not self._loading:
             self._text_generation += 1
             self.schedule_recovery()
+        # Word counts walk the whole text; on big documents wait for a pause.
+        large = self.editor.document().characterCount() > LARGE_DOCUMENT_CHARS
+        self.stats_timer.setInterval(900 if large else 180)
         self.stats_timer.start()
         if self.previewing:
             self.preview_timer.start()
@@ -614,11 +707,17 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         read = f' · {max(1, (words + 219) // 220)} min' if self.show_reading_time and words else ''
         ro = (
             ' · READ ONLY'
-            if self.path and Path(self.path).exists() and not os.access(self.path, os.W_OK)
+            if not self.read_only
+            and self.path
+            and Path(self.path).exists()
+            and not os.access(self.path, os.W_OK)
             else ''
         )
-        state = 'Modified' if self.is_modified() else 'Saved'
-        theme = 'NIRUX' if self.theme == 'Follow NIRUX' else self.theme.capitalize()
+        if self.read_only:
+            state = 'Viewer (read-only)'
+        else:
+            state = 'Modified' if self.is_modified() else 'Saved'
+        theme ='NIRUX' if self.theme == 'Follow NIRUX' else self.theme.capitalize()
         recovered = ' · RECOVERED' if self.recovered else ''
         self.stat_left.setText(
             f'{state} · {theme} · '
@@ -702,20 +801,43 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.cursor_changed()
         self.update_file_actions()
 
+    def select_all(self):
+        (self.preview if self.previewing else self.editor).selectAll()
+
     def copy_all(self):
         c = self.editor.textCursor()
         c.select(QTextCursor.SelectionType.Document)
         QApplication.clipboard().setText(c.selectedText().replace('\u2029', '\n'))
 
     def show_find(self, replace=False):
+        replace = replace and not self.read_only
+        self._find_replace = replace
         self.findbar.show()
-        self.replace_input.setVisible(replace)
+        self.replace_input.setVisible(replace and not self.previewing)
+        for button in self.replace_buttons:
+            button.setVisible(not self.read_only)
+        selected = (
+            self.preview.textCursor() if self.previewing else self.editor.textCursor()
+        ).selectedText()
+        if selected and '\u2029' not in selected and len(selected) < 200:
+            self.find_input.setText(selected)
         self.find_input.setFocus()
         self.find_input.selectAll()
 
     def hide_find(self):
         self.findbar.hide()
-        self.editor.setFocus()
+        (self.preview if self.previewing else self.editor).setFocus()
+
+    def eventFilter(self, obj, event):
+        # Escape in the find bar closes it (and leaves focus mode alone).
+        if (
+            obj in (getattr(self, 'find_input', None), getattr(self, 'replace_input', None))
+            and event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Escape
+        ):
+            self.hide_find()
+            return True
+        return super().eventFilter(obj, event)
 
     def find(self):
         self.show_find(False)
@@ -734,13 +856,23 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
             flags |= QTextDocument.FindFlag.FindCaseSensitively
         if self.word_box.isChecked():
             flags |= QTextDocument.FindFlag.FindWholeWords
-        if not self.editor.find(q, flags):
-            self.editor.moveCursor(
+        view = self.preview if self.previewing else self.editor
+        if not view.find(q, flags):
+            # Wrap around once; keep the old position when there is no match.
+            cursor = view.textCursor()
+            view.moveCursor(
                 QTextCursor.MoveOperation.End if backward else QTextCursor.MoveOperation.Start
             )
-            self.editor.find(q, flags)
+            if not view.find(q, flags):
+                view.setTextCursor(cursor)
+                self.flash_status(f'Not found: {q}')
+                return False
+            self.flash_status('Search wrapped', 1000)
+        return True
 
     def replace_one(self):
+        if self.read_only or self.previewing:
+            return
         c = self.editor.textCursor()
         if c.hasSelection() and c.selectedText() == self.find_input.text():
             c.insertText(self.replace_input.text())
@@ -748,7 +880,7 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
 
     def replace_all(self):
         q = self.find_input.text()
-        if not q:
+        if not q or self.read_only or self.previewing:
             return
         text = self.editor.toPlainText()
         flags = 0 if self.case_box.isChecked() else re.I
@@ -766,6 +898,8 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         c.endEditBlock()
 
     def wrap_markdown(self, left, right):
+        if self.read_only or self.previewing:
+            return
         c = self.editor.textCursor()
         selected = c.selectedText().replace('\u2029', '\n')
         if selected:
@@ -778,6 +912,8 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
             self.editor.setTextCursor(c)
 
     def insert_link(self):
+        if self.read_only or self.previewing:
+            return
         c = self.editor.textCursor()
         selected = c.selectedText().replace('\u2029', ' ') or 'text'
         c.insertText(f'[{selected}](url)')
@@ -785,11 +921,15 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
         self.editor.setTextCursor(c)
 
     def prefix_line(self, prefix):
+        if self.read_only or self.previewing:
+            return
         c = self.editor.textCursor()
         c.movePosition(QTextCursor.MoveOperation.StartOfBlock)
         c.insertText(prefix)
 
     def toggle_checkbox(self):
+        if self.read_only or self.previewing:
+            return
         c = self.editor.textCursor()
         c.select(QTextCursor.SelectionType.BlockUnderCursor)
         line = c.selectedText().replace('\u2029', '')
@@ -864,6 +1004,9 @@ class Main(FileMixin, RecoveryMixin, PreviewMixin, SettingsMixin, QMainWindow):
 
     def closeEvent(self, e):
         self.settings.setValue('geometry', self.saveGeometry())
+        if self.read_only:
+            e.accept()
+            return
         self.recover(sync=True)
         if self.path:
             self.settings.setValue(
@@ -996,6 +1139,54 @@ def spell_self_test():
     return 1
 
 
+USAGE = """usage: nirunote [OPTIONS] [FILE]
+
+  FILE                 open FILE (also: --open FILE)
+  --read-only          open a viewer: starts in Preview, cannot edit or save
+  --heading TEXT       scroll to the heading TEXT (its title or #anchor slug)
+  --preview            start in Preview (editable)
+  --new                start with an empty document
+  --focus              start in focus mode (full screen)
+  --scratchpad         open the scratchpad instance
+  --version            print the version
+  --help               show this help"""
+
+VALUE_OPTIONS = ('--open', '--heading')
+FLAG_OPTIONS = ('--scratchpad', '--new', '--focus', '--read-only', '--preview', '--help', '-h')
+
+
+def parse_args(argv):
+    """Parse the command line; unknown options are ignored for compatibility."""
+    opts = {'files': [], 'open': None, 'heading': None}
+    for flag in FLAG_OPTIONS:
+        opts[flag.lstrip('-').replace('-', '_') or 'help'] = False
+    opts['help'] = False
+    i = 0
+    only_files = False
+    while i < len(argv):
+        arg = argv[i]
+        i += 1
+        if only_files or not arg.startswith('-') or arg == '-':
+            opts['files'].append(arg)
+            continue
+        if arg == '--':
+            only_files = True
+            continue
+        name, eq, value = arg.partition('=')
+        if name in VALUE_OPTIONS:
+            if not eq:
+                if i >= len(argv):
+                    raise ValueError(f'{name} needs a value')
+                value = argv[i]
+                i += 1
+            opts[name[2:]] = value
+        elif arg in ('--help', '-h'):
+            opts['help'] = True
+        elif arg in FLAG_OPTIONS:
+            opts[arg[2:].replace('-', '_')] = True
+    return opts
+
+
 def main():
     # Non-GUI probes are used by the installer/wrapper and must never create a window.
     if '--spell-self-test' in sys.argv:
@@ -1022,33 +1213,43 @@ def main():
         app.quit()
         print(f'{APP} {VERSION}: GUI OK', flush=True)
         return 0
-    scratch = '--scratchpad' in sys.argv
-    force_new = '--new' in sys.argv
-    focus_start = '--focus' in sys.argv
-    open_arg = None
-    if '--open' in sys.argv:
-        try:
-            open_arg = sys.argv[sys.argv.index('--open') + 1]
-        except IndexError:
-            open_arg = None
-    files = [
-        a
-        for i, a in enumerate(sys.argv[1:])
-        if not a.startswith('-') and (i == 0 or sys.argv[i] != '--open')
-    ]
-    explicit = open_arg or (files[0] if files else None)
+    try:
+        opts = parse_args(sys.argv[1:])
+    except ValueError as error:
+        print(f'nirunote: {error}', file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 2
+    if opts['help']:
+        print(USAGE)
+        return 0
+    scratch = opts['scratchpad']
+    force_new = opts['new']
+    focus_start = opts['focus']
+    explicit = opts['open'] or (opts['files'][0] if opts['files'] else None)
     app = QApplication(sys.argv)
     app.setApplicationName(APP)
     app.setApplicationDisplayName(APP + ' Scratchpad' if scratch else APP)
     app.setOrganizationName('NIRU')
     app.setDesktopFileName('nirunote-scratchpad' if scratch else 'nirunote')
-    w = Main(skip_session=scratch or force_new or bool(explicit), scratchpad=scratch)
+    read_only = opts['read_only'] and not scratch
+    w = Main(
+        skip_session=scratch or force_new or bool(explicit) or read_only,
+        scratchpad=scratch,
+        read_only=read_only,
+    )
     if scratch:
         w.open_scratchpad()
     elif explicit and Path(explicit).is_file():
         w.load(explicit)
+    elif explicit and read_only:
+        w.title.setText(Path(explicit).name)
+        w.flash_status(f'Not found: {explicit}', 6000)
     elif force_new:
         w.reset_doc()
+    if read_only or opts['preview']:
+        w.set_previewing(True)
+    if opts['heading'] and w.path:
+        w.open_at_heading(opts['heading'])
     w.show()
     if focus_start:
         w.set_focus(True)

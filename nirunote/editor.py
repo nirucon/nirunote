@@ -26,10 +26,24 @@ except ImportError:
     from constants import LARGE_DOCUMENT_CHARS
 
 
+HEADING_RE = re.compile(r'^(#{1,6})(\s+)(.*)$')
+STRONG_RE = re.compile(r'\*\*([^*]+)\*\*')
+EM_RE = re.compile(r'(?<!\*)\*([^*]+)\*(?!\*)')
+CODE_RE = re.compile(r'`([^`]+)`')
+LIST_RE = re.compile(r'^\s*([-*+]\s+|\d+[.)]\s+)')
+TASK_RE = re.compile(r'^\s*[-*+]\s+(\[[ xX]\])')
+QUOTE_RE = re.compile(r'^(>\s?).*$')
+LINK_RE = re.compile(r'\[([^]]+)\]\(([^)]+)\)')
+WORD_RE = re.compile(r"(?u)\b[^\W\d_][^\W\d_'-]*\b")
+SPELL_SKIP_RE = re.compile(r'`[^`]*`|https?://\S+|www\.\S+')
+
+
 class MarkdownHighlighter(QSyntaxHighlighter):
     def __init__(self, doc, window):
         super().__init__(doc)
         self.window = window
+        self._formats = None
+        self._format_key = None
 
     def fmt(self, col, bold=False, italic=False):
         f = QTextCharFormat()
@@ -48,53 +62,90 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         f.setFontStyleHint(QFont.StyleHint.Monospace)
         return f
 
+    def formats(self):
+        """Character formats for the current palette and font size, built once."""
+        key = (getattr(self.window, '_theme_epoch', 0), self.window.font_size)
+        if self._formats is None or key != self._format_key:
+            t = self.window.current_palette()
+            size = self.window.font_size
+            headings = {}
+            for level in range(1, 7):
+                f = self.fmt(t['accent'], True)
+                bump = 4 if level == 1 else 2 if level == 2 else 1 if level == 3 else 0
+                f.setFontPointSize(max(11, size + bump))
+                headings[level] = f
+            spell = QTextCharFormat()
+            spell.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SpellCheckUnderline)
+            spell.setUnderlineColor(QColor(t['muted']))
+            self._formats = {
+                'palette': t,
+                'fence': self.code_format(t, t['md']),
+                'code': self.code_format(t, t['fg']),
+                'md': self.fmt(t['md']),
+                'md_bold': self.fmt(t['md'], True),
+                'bold': self.fmt(t['fg'], True),
+                'italic': self.fmt(t['fg'], False, True),
+                'accent': self.fmt(t['accent']),
+                'accent_bold': self.fmt(t['accent'], True),
+                'quote': self.fmt(t['muted'], False, True),
+                'headings': headings,
+                'spell': spell,
+            }
+            self._format_key = key
+        return self._formats
+
     def highlightBlock(self, text):
-        t = self.window.current_palette()
+        F = self.formats()
         # Fenced code blocks: a block state carries "inside a fence" to the
         # next line. Code is shown verbatim in monospace on a subtle panel
         # background, without Markdown or spelling marks (no language parsing).
         inside = self.previousBlockState() == self.CODE_STATE
-        if text.startswith('```'):
+        if text.startswith(('```', '~~~')):
             self.setCurrentBlockState(-1 if inside else self.CODE_STATE)
-            self.setFormat(0, len(text), self.code_format(t, t['md']))
+            self.setFormat(0, len(text), F['fence'])
             return
         if inside:
             self.setCurrentBlockState(self.CODE_STATE)
-            self.setFormat(0, len(text), self.code_format(t, t['fg']))
+            self.setFormat(0, len(text), F['code'])
             return
         self.setCurrentBlockState(-1)
+        if not text:
+            return
         # Syntax markers are deliberately muted; content remains dominant.
-        for m in re.finditer(r'^(#{1,6})(\s+)(.*)$', text):
-            level = len(m.group(1))
-            self.setFormat(m.start(1), level, self.fmt(t['md']))
-            f = self.fmt(t['accent'], True)
-            f.setFontPointSize(
-                max(
-                    11,
-                    self.window.font_size
-                    + (4 if level == 1 else 2 if level == 2 else 1 if level == 3 else 0),
-                )
-            )
-            self.setFormat(m.start(3), len(m.group(3)), f)
-        for m in re.finditer(r'\*\*([^*]+)\*\*', text):
-            self.setFormat(m.start(), 2, self.fmt(t['md']))
-            self.setFormat(m.start(1), len(m.group(1)), self.fmt(t['fg'], True))
-            self.setFormat(m.end() - 2, 2, self.fmt(t['md']))
-        for m in re.finditer(r'(?<!\*)\*([^*]+)\*(?!\*)', text):
-            self.setFormat(m.start(), 1, self.fmt(t['md']))
-            self.setFormat(m.start(1), len(m.group(1)), self.fmt(t['fg'], False, True))
-            self.setFormat(m.end() - 1, 1, self.fmt(t['md']))
-        for m in re.finditer(r'`([^`]+)`', text):
-            self.setFormat(m.start(), m.end() - m.start(), self.fmt(t['accent']))
-        for m in re.finditer(r'^\s*([-*+]\s+|\d+[.)]\s+)', text):
-            self.setFormat(m.start(1), len(m.group(1)), self.fmt(t['md'], True))
-        for m in re.finditer(r'^\s*[-*+]\s+(\[[ xX]\])', text):
-            self.setFormat(m.start(1), len(m.group(1)), self.fmt(t['accent'], True))
-        for m in re.finditer(r'^(>\s?).*$', text):
-            self.setFormat(m.start(), len(m.group(1)), self.fmt(t['md']))
-            self.setFormat(m.end(1), len(text) - m.end(1), self.fmt(t['muted'], False, True))
-        for m in re.finditer(r'\[([^]]+)\]\(([^)]+)\)', text):
-            self.setFormat(m.start(), m.end() - m.start(), self.fmt(t['accent']))
+        first = text.lstrip()[:1]
+        if first == '#':
+            m = HEADING_RE.match(text)
+            if m:
+                level = len(m.group(1))
+                self.setFormat(m.start(1), level, F['md'])
+                self.setFormat(m.start(3), len(m.group(3)), F['headings'][level])
+        if '*' in text:
+            for m in STRONG_RE.finditer(text):
+                self.setFormat(m.start(), 2, F['md'])
+                self.setFormat(m.start(1), len(m.group(1)), F['bold'])
+                self.setFormat(m.end() - 2, 2, F['md'])
+            for m in EM_RE.finditer(text):
+                self.setFormat(m.start(), 1, F['md'])
+                self.setFormat(m.start(1), len(m.group(1)), F['italic'])
+                self.setFormat(m.end() - 1, 1, F['md'])
+        if '`' in text:
+            for m in CODE_RE.finditer(text):
+                self.setFormat(m.start(), m.end() - m.start(), F['accent'])
+        if first in '-*+0123456789':
+            m = LIST_RE.match(text)
+            if m:
+                self.setFormat(m.start(1), len(m.group(1)), F['md_bold'])
+                m = TASK_RE.match(text)
+                if m:
+                    self.setFormat(m.start(1), len(m.group(1)), F['accent_bold'])
+        if text[0] == '>':
+            m = QUOTE_RE.match(text)
+            if m:
+                self.setFormat(m.start(), len(m.group(1)), F['md'])
+                self.setFormat(m.end(1), len(text) - m.end(1), F['quote'])
+        if '](' in text:
+            for m in LINK_RE.finditer(text):
+                self.setFormat(m.start(), m.end() - m.start(), F['accent'])
         # Local/offline live spelling; skip URLs and inline code.
         if (
             self.window.spell_dict
@@ -102,10 +153,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             and not getattr(self.window, 'spell_deferred', False)
             and self.window.editor.document().characterCount() <= LARGE_DOCUMENT_CHARS
         ):
-            excluded = []
-            for pat in (r'`[^`]*`', r'https?://\S+', r'www\.\S+'):
-                excluded.extend((x.start(), x.end()) for x in re.finditer(pat, text))
-            for m in re.finditer(r"(?u)\b[^\W\d_][^\W\d_'-]*\b", text):
+            excluded = [(x.start(), x.end()) for x in SPELL_SKIP_RE.finditer(text)]
+            for m in WORD_RE.finditer(text):
                 a, b = m.span()
                 word = m.group()
                 if any(x <= a and b <= y for x, y in excluded):
@@ -119,10 +168,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
                 except Exception:
                     correct = True
                 if correct is False:
-                    f = QTextCharFormat()
-                    f.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SpellCheckUnderline)
-                    f.setUnderlineColor(QColor(t['muted']))
-                    self.setFormat(a, b - a, f)
+                    self.setFormat(a, b - a, F['spell'])
 
 
 class NoteEditor(QPlainTextEdit):
@@ -140,6 +186,11 @@ class NoteEditor(QPlainTextEdit):
     def keyPressEvent(self, e):
         if e.key() == Qt.Key.Key_Escape and self.owner.focused:
             self.owner.set_focus(False)
+            return
+        if self.isReadOnly():
+            # The list/quote helpers below insert text programmatically, which
+            # a read-only QPlainTextEdit would still accept.
+            super().keyPressEvent(e)
             return
 
         # Indent/outdent Markdown list items without inserting literal tabs.
@@ -198,7 +249,7 @@ class NoteEditor(QPlainTextEdit):
 
     def contextMenuEvent(self, e):
         menu = self.createStandardContextMenu()
-        if self.owner.spell_dict:
+        if self.owner.spell_dict and not self.isReadOnly():
             c = self.cursorForPosition(e.pos())
             c.select(QTextCursor.SelectionType.WordUnderCursor)
             word = c.selectedText()

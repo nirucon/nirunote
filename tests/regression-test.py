@@ -24,7 +24,7 @@ for key, sub in (
     os.environ[key] = str(BASE / sub)
 Path(os.environ['HOME']).mkdir()
 
-from PySide6.QtCore import QEvent, QEventLoop, QObject, QTimer  # noqa: E402
+from PySide6.QtCore import QEvent, QEventLoop, QObject, QTimer, QUrl  # noqa: E402
 from PySide6.QtWidgets import QApplication, QFileDialog  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -598,6 +598,194 @@ def follow_nirux_tracks_theme_changes():
     assert '#203040' in w.styleSheet()
     w.set_theme('dark')
     kitty.unlink()
+    dispose(w)
+
+
+@test
+def m1_markdown_rendering():
+    from markdown import render_markdown, slugify
+
+    def html(text):
+        return render_markdown(text).html
+
+    # Headings, anchors and duplicates (GitHub and `nirux manual` slugs).
+    r = render_markdown('# Lock & screensaver\n\n## Details\n\n## Details\n\nSetext\n---\n')
+    assert [h[3] for h in r.headings] == ['lock--screensaver', 'details', 'details-1', 'setext'], r.headings
+    assert '<a name="details-1"></a>' in r.html
+    assert slugify('`nirux manual` keys') == 'nirux-manual-keys'
+    # Emphasis, strike, code, escapes and entities.
+    out = html('*a* _b_ **c** __d__ ***e*** ~~f~~ `g*h*` snake_case_name \\*i\\* &copy; &bogus;')
+    for part in ('<em>a</em>', '<em>b</em>', '<strong>c</strong>', '<strong>d</strong>',
+                 '<strong><em>e</em></strong>', '<s>f</s>', '<code>g*h*</code>',
+                 'snake_case_name', '*i*', '©', '&amp;bogus;'):  # fmt: skip
+        assert part in out, (part, out)
+    # Lists: nesting, ordered start, task lists, loose items.
+    out = html('- a\n  - b\n    - c\n- d\n\n3. x\n4. y\n\n- [x] done\n- [ ] todo\n')
+    assert out.count('<ul') == 4 and '<ol start="3">' in out, out
+    assert '☑' in out and '☐' in out and 'list-style-type:none' in out, out
+    loose = html('* one\n\n* two\n\n  more\n')
+    assert loose.count('<p') == 3, loose
+    # Block quotes nest; alerts get their own box.
+    out = html('> a\n> > b\n> > > c\n')
+    assert out.count('class="qbar"') == 3, out
+    for kind in ('NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION'):
+        out = html(f'> [!{kind}]\n> body\n')
+        assert f'class="a-{kind.lower()}"' in out and '[!' not in out, out
+    # Tables with alignment, escaped pipes and code spans with pipes.
+    out = html('| L | C | R |\n|:--|:-:|--:|\n| a \\| b | `x|y` | 1 |\n')
+    assert 'align="left"' in out and 'align="center"' in out and 'align="right"' in out, out
+    assert 'a | b' in out and '<code>x|y</code>' in out, out
+    assert html('a | b\n--|--\n1 | 2\n').count('<td') == 2
+    # Fenced code with highlighting, indented code, and fences without a language.
+    out = html('```python\ndef f():\n    return "x"  # c\n```\n')
+    assert '<span class="tk">def</span>' in out and '<span class="ts">"x"</span>' in out, out
+    assert '<span class="tc"># c</span>' in out, out
+    out = html('```\n<b>raw</b>\n```\n\n    indented\n')
+    assert '&lt;b&gt;raw&lt;/b&gt;' in out and 'indented' in out and 'span class' not in out, out
+    sh = html('```sh\nnirux manual --where x | grep -q y\n```\n')
+    assert '<span class="tf">nirux</span>' in sh and '<span class="tf">grep</span>' in sh, sh
+    # Links: inline, reference, autolinks, anchors, relative; unsafe ones are text.
+    out = html('[a](https://x.test "T") [b][r] [c] <https://y.test> https://z.test/p_q_r www.w.test '
+               'm@e.test [d](#sec) [e](other.md#h) [f](javascript:alert(1)) [g](file:///etc/passwd)\n\n'
+               '[r]: https://r.test\n[c]: https://c.test\n')  # fmt: skip
+    for part in ('href="https://x.test" title="T"', 'href="https://r.test"', 'href="https://c.test"',
+                 'href="https://y.test"', 'href="https://z.test/p_q_r"', 'href="http://www.w.test"',
+                 'href="mailto:m@e.test"', 'href="#sec"', 'href="other.md#h"'):  # fmt: skip
+        assert part in out, (part, out)
+    assert 'javascript' not in out.split('href')[-1] and 'file:' not in out, out
+    # Images: local and remote become <img>, unsafe ones become alt text.
+    r = render_markdown('![one](pic.png) ![two](https://i.test/a.png) ![three](javascript:x)')
+    assert '<img src="pic.png"' in r.html and '<img src="https://i.test/a.png"' in r.html, r.html
+    assert 'three' in r.html and 'javascript' not in r.html and r.images['pic.png'] == 'one'
+    # Footnotes, hard breaks, HTML.
+    out = html('Text[^n].\n\n[^n]: Note body.\n')
+    assert 'href="#fn-n"' in out and '<a name="fn-n"></a>Note body.' in out, out
+    assert html('a  \nb\\\nc\nd').count('<br>') == 2
+    out = html('<details>\n<summary>S</summary>\n\nBody\n</details>\n<!-- hidden -->\n<img src="x.png" onerror="y">')
+    assert 'details' not in out and 'hidden' not in out and 'onerror' not in out, out
+    assert '<script>' not in html('<script>alert(1)</script>')
+    # The bundled showcase renders without errors and finds every heading.
+    showcase = (ROOT / 'tests' / 'fixtures' / 'showcase.md').read_text(encoding='utf-8')
+    r = render_markdown(showcase)
+    assert len(r.headings) >= 20 and 'class="a-caution"' in r.html and 'fn-long' in r.html
+
+
+@test
+def m2_cli_parsing():
+    parse = mod.parse_args
+    opts = parse(['notes.md', '--read-only', '--heading', 'Key bindings'])
+    assert opts['files'] == ['notes.md'] and opts['read_only'] and opts['heading'] == 'Key bindings'
+    opts = parse(['--heading=lock', '--preview', '--open', 'x.md', '--unknown'])
+    assert opts['heading'] == 'lock' and opts['preview'] and opts['open'] == 'x.md', opts
+    assert opts['files'] == [], opts
+    assert parse(['--', '--weird.md'])['files'] == ['--weird.md']
+    try:
+        parse(['--heading'])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('--heading without a value must fail')
+
+
+@test
+def m3_read_only_viewer():
+    text = '# Top\n\n' + '\n\n'.join(f'## Part {i}\n\n' + 'Lorem ipsum. ' * 40 for i in range(30))
+    path = fixture('viewer.md', text)
+    w = mod.Main(skip_session=True, read_only=True)
+    w.load(str(path))
+    w.set_previewing(True)
+    w.resize(800, 600)
+    w.show()
+    spin(0.3)
+    assert w.ro_badge.isVisible() and 'read-only' in w.windowTitle(), w.windowTitle()
+    assert 'Viewer (read-only)' in w.stat_left.text(), w.stat_left.text()
+    assert w.editor.isReadOnly() and not w.save_btn.isVisible()
+    assert w.save() is False and w.save_as() is False
+    w.wrap_markdown('**', '**')
+    w.toggle_checkbox()
+    w.paste_plain()
+    assert w.editor.toPlainText() == text and not w.is_modified()
+    # --heading in the Preview scrolls to the anchor.
+    w.open_at_heading('Part 20')
+    spin(0.3)
+    bar = w.preview.verticalScrollBar()
+    assert bar.value() > bar.maximum() // 2, (bar.value(), bar.maximum())
+    # The source view is highlighted only when shown, and stays read-only.
+    assert w.high.document() is None
+    w.set_previewing(False)
+    assert w.high.document() is w.editor.document()
+    # Find works in the Preview.
+    w.set_previewing(True)
+    w.show_find()
+    w.find_input.setText('Part 7')
+    assert w.find_next(False) and w.preview.textCursor().selectedText() == 'Part 7'
+    assert not w.replace_input.isVisible()
+    w.hide_find()
+    # External changes reload silently.
+    path.write_text(text.replace('# Top', '# Changed top'), encoding='utf-8')
+    spin(1.0)
+    assert w.editor.toPlainText().startswith('# Changed top'), w.editor.toPlainText()[:30]
+    settings = mod.QSettings('NIRU', 'NIRUNOTE')
+    assert str(path.resolve()) not in (settings.value('recent', [], type=list) or [])
+    assert not recovery_file().exists()
+    w.hide()
+    w.deleteLater()
+    qapp.processEvents()
+
+
+@test
+def m4_preview_links_and_cache():
+    other = fixture('other.md', '# Other\n\n' + 'text\n\n' * 200 + '## Deep heading\n\nbody\n')
+    main = fixture('main.md', '# Main\n\n[go](other.md#deep-heading) [web](https://example.test)\n')
+    w = window()
+    w.load(str(main))
+    w.set_previewing(True)
+    w.resize(800, 600)
+    spin(0.2)
+    calls = []
+    import preview as preview_module
+
+    original = preview_module.render_markdown
+
+    def counting(text):
+        calls.append(1)
+        return original(text)
+
+    preview_module.render_markdown = counting
+    try:
+        w.set_previewing(False)
+        w.set_previewing(True)
+        assert not calls, 'unchanged text must not be rendered again'
+        w.open_preview_link(QUrl('other.md#deep-heading'))
+        spin(0.3)
+        assert w.path == str(other.resolve()), w.path
+        assert w.preview.verticalScrollBar().value() > 0
+        w.navigate_back()
+        spin(0.2)
+        assert w.path == str(main), w.path
+    finally:
+        preview_module.render_markdown = original
+    w.open_preview_link(QUrl('javascript:alert(1)'))
+    assert 'Blocked' in w.stat_right.text()
+    # Preview zoom keeps the rendered HTML (font only).
+    html_before = w._preview_html
+    w.resize_font(1)
+    assert w._preview_html == html_before
+    w.resize_font(-1)
+    dispose(w)
+
+
+@test
+def m5_highlighter_is_cached():
+    w = window()
+    w.editor.setPlainText('# H\n\n**b** *i* `c` [l](u)\n> q\n- [x] t\n' * 200)
+    first = w.high.formats()
+    w.rehighlight()
+    assert w.high.formats() is first, 'formats must be built once per theme and size'
+    w.resize_font(1)
+    assert w.high.formats() is not first
+    w.resize_font(-1)
+    w.set_modified(False)
     dispose(w)
 
 

@@ -1,3 +1,37 @@
+## 0.7.0 (2026-11-10): A complete Preview and a read-only viewer
+
+- New Markdown renderer for the Preview (no new dependency): CommonMark block
+  structure (nested lists and quotes, loose and tight lists, ordered start
+  numbers, setext headings, indented code, link reference definitions,
+  entities, escapes, hard breaks) plus GitHub tables with alignment, task
+  lists, strikethrough, autolinks, footnotes and alerts (`> [!NOTE]` and
+  friends). Headings get GitHub-style anchors.
+- Fenced code is highlighted with one cheap regex pass per block for common
+  languages; colours come from the theme (Follow NIRUX uses the terminal
+  palette). Very large documents skip it to save memory.
+- Images: local files are decoded at most at the page width (32 MB limit);
+  http(s) images are fetched in the background only while the Preview shows
+  them (8 MB, 10 s limit). Preferences: "Remote images in Preview". Missing
+  images show their alt text. SVG works when QtSvg is installed.
+- Links: `#anchors` scroll, relative Markdown links open in the same window,
+  `Alt+Left` goes back. javascript:, data: and file: links stay blocked.
+- Long lines, long URLs and wide tables wrap instead of widening the page.
+- `--read-only`: a viewer that starts in the Preview, shows a READ ONLY badge
+  and "Viewer (read-only)", and cannot edit, save or write recovery or
+  recent-file state. Changes on disk reload at once.
+- `--heading TEXT` opens at a heading (title, part of it, or anchor slug);
+  `--preview` starts in the Preview; `--help` lists the options.
+- Find works in the Preview; `F3` / `Shift+F3`; `Esc` closes the find bar.
+  The outline and Go to heading jump inside the Preview.
+- `Ctrl`+wheel zooms the Preview as well.
+- Lighter: the Preview is not rendered again when nothing changed; zooming
+  re-lays out without re-rendering; the source highlighter caches its formats
+  and, in the viewer, runs only when the source is shown; word counts on big
+  documents wait for a pause in typing. Startup on a 1.9 MB file: 1.8 s to
+  0.85 s.
+- Formatting shortcuts no longer change the hidden source while the Preview
+  is shown.
+
 ## 0.6.1 — 2026-11-07 — Installer for fresh systems
 
 - `./install.sh --yes`, `NIRUNOTE_ASSUME_YES=1` or `NIRUX_ASSUME_YES=1` installs missing packages without a prompt (unattended `nirux extras install`).

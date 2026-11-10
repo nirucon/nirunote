@@ -1,3 +1,16 @@
+# NIRUNOTE 0.7.0
+
+A complete Markdown Preview, a read-only viewer for the NIRUX manual, and less work per document.
+
+- The Preview renders CommonMark and GitHub Markdown: nested lists and quotes, task lists, tables with alignment, strikethrough, autolinks, footnotes, GitHub alerts (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), entities and escapes. Code blocks are syntax highlighted in the theme colours. Long lines and wide tables wrap.
+- Images: local images are scaled to the page; remote images load in the background while the Preview shows them (8 MB limit, can be turned off in Preferences).
+- Links to `#headings` and to other Markdown files open in the same window; `Alt+Left` goes back.
+- `nirunote FILE --read-only` opens a viewer that cannot edit or save (READ ONLY badge). `--heading TEXT` opens at a heading, `--preview` starts in the Preview.
+- Find works in the Preview (`F3` / `Shift+F3`); the outline jumps inside the Preview; `Ctrl`+wheel zooms the Preview.
+- Faster and leaner: startup on a 1.9 MB file is 0.85 s instead of 1.8 s, and switching back to an unchanged Preview no longer renders it again.
+
+No document format changes. One new setting, `remote_images` (on). Restart a running NIRUNOTE after updating.
+
 # NIRUNOTE 0.6.1
 
 Installer fixes found by clean installs on fresh Arch, Void and Debian systems.

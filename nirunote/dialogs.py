@@ -95,6 +95,9 @@ class Prefs(QDialog):
         self.restore_last.setChecked(w.restore_last_document)
         self.reading_time = QCheckBox()
         self.reading_time.setChecked(w.show_reading_time)
+        self.remote_images = QCheckBox()
+        self.remote_images.setChecked(w.remote_images)
+        self.remote_images.setToolTip('Download http(s) images shown in the Preview (up to 8 MB each)')
         for label, widget in [
             ('Theme', self.theme),
             ('Default format', self.fmt),
@@ -102,6 +105,7 @@ class Prefs(QDialog):
             ('Custom save folder', row),
             ('Restore last document', self.restore_last),
             ('Show reading time', self.reading_time),
+            ('Remote images in Preview', self.remote_images),
             ('Writing width', self.width),
             ('Font size', self.size),
             ('Word wrap', self.wrap),
@@ -144,6 +148,10 @@ class Prefs(QDialog):
         w.default_save_folder = self.save_folder.text().strip()
         w.restore_last_document = self.restore_last.isChecked()
         w.show_reading_time = self.reading_time.isChecked()
+        if w.remote_images != self.remote_images.isChecked():
+            w.remote_images = self.remote_images.isChecked()
+            w.preview.reset_images()
+            w._preview_key = None
         w.init_spell()
         w.rehighlight()
         w.update_document_stats()

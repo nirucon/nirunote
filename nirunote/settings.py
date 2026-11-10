@@ -49,6 +49,7 @@ class SettingsMixin:
         self.last_open_folder = self.settings.value('last_open_folder', str(Path.home()))
         self.restore_last_document = self.settings.value('restore_last_document', False, type=bool)
         self.show_reading_time = self.settings.value('show_reading_time', False, type=bool)
+        self.remote_images = self.settings.value('remote_images', True, type=bool)
         self.last_document = self.settings.value('last_document', '')
 
     def available_themes(self):
@@ -88,6 +89,7 @@ class SettingsMixin:
 
     def apply_theme(self):
         self._palette_cache = None
+        self._theme_epoch = getattr(self, '_theme_epoch', 0) + 1
         t = self.current_palette()
         self.setStyleSheet(app_stylesheet(t))
         f = QFont('monospace')
@@ -95,7 +97,12 @@ class SettingsMixin:
         f.setPointSize(self.font_size)
         self.editor.setFont(f)
         self.preview.setFont(QFont('sans-serif', self.font_size))
-        self.rehighlight()
+        if self.previewing:
+            # Re-highlighting a large source costs real time; do it when the
+            # editor is shown again (ensure_highlighting()).
+            self._highlight_stale = True
+        else:
+            self.rehighlight()
         self.update_preview()
         self.update_line_highlight()
 
@@ -165,6 +172,7 @@ class SettingsMixin:
             ('last_open_folder', self.last_open_folder),
             ('restore_last_document', self.restore_last_document),
             ('show_reading_time', self.show_reading_time),
+            ('remote_images', self.remote_images),
             ('last_document', self.last_document),
         ]:
             self.settings.setValue(k, v)

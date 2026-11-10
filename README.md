@@ -4,7 +4,7 @@ Minimal, keyboard-oriented Markdown editor with a styled preview.
 
 **Status: beta** · Part of the [NIRUX](https://github.com/nirucon/nirux) suite · [MIT License](LICENSE)
 
-**Version:** 0.6.1
+**Version:** 0.7.0
 
 ![NIRUNOTE](docs/screenshots/main.png)
 
@@ -21,13 +21,26 @@ Wayland) it is a normal Qt application.
 
 ## Features
 
-- Markdown editing and a styled Preview (`Ctrl+Shift+E`), with a small, inert
-  inline-HTML subset (`small`, `br`, `kbd`, `sub`, `sup`, `mark`) and safe
-  links (http, https, mailto only).
+- Markdown editing and a styled Preview (`Ctrl+Shift+E`) that follows the
+  theme: CommonMark and GitHub Markdown (tables with alignment, task lists,
+  strikethrough, autolinks, footnotes, nested quotes and lists), GitHub alerts
+  (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, `[!CAUTION]`), light
+  syntax highlighting of fenced code (Python, shell, fish, TOML, YAML, JSON,
+  INI, Rust, C/C++, Go, JavaScript/TypeScript, Java family, Lua, SQL, CSS,
+  HTML/XML, Makefile, diff), and local and remote images scaled to the page.
+- Safe Preview: raw HTML is not passed through (only a small formatting subset
+  such as `kbd`, `sub`, `sup`, `mark`, `small` and `br`); links work for http,
+  https, mailto, `#headings` and relative Markdown files, which open in the
+  same window (`Alt+Left` goes back). Remote images are fetched only while the
+  Preview shows them, at most 8 MB each, and can be turned off in Preferences.
+- A read-only viewer (`--read-only`) and opening at a heading (`--heading`),
+  used by `nirux manual`.
 - Dark, light and Satie themes, plus **Follow NIRUX** when NIRUX is detected;
   focus mode and configurable writing width (Narrow, Normal, Wide, Full width).
-- Find/replace, heading outline with type-to-filter (`Ctrl+Shift+O`), go to
-  heading, recent files, Quick Open and a command palette.
+- Find/replace (find also works in the Preview, `F3` / `Shift+F3` for
+  next / previous), heading outline with type-to-filter (`Ctrl+Shift+O`) that
+  jumps inside the Preview too, go to heading, recent files, Quick Open and a
+  command palette.
 - Monospace highlighting of fenced code blocks.
 - Local spell checking with Hunspell when it and a dictionary are installed;
   the status line says exactly what is missing ("Spelling: unavailable
@@ -35,7 +48,8 @@ Wayland) it is a normal Qt application.
 - Crash recovery: snapshots are written only after real edits (about 2 s after
   typing stops, at most every 10 s), and after a crash you get Restore /
   Discard / Compare. Nothing is written while idle.
-- Atomic saves and a notice when the file changes on disk.
+- Atomic saves. A file changed on disk is reloaded at once when there are no
+  unsaved edits (always in the viewer), otherwise NIRUNOTE asks.
 - A separate scratchpad instance (`--scratchpad`) with its own note file.
 - Keyboard-complete dialogs with accessibility names.
 
@@ -96,7 +110,11 @@ nirunote --open FILE.md  # the same, explicit
 nirunote --new           # start with an empty document
 nirunote --focus         # start in focus mode
 nirunote --scratchpad    # open the scratchpad note
+nirunote --preview FILE.md                  # start in the Preview
+nirunote FILE.md --read-only                # viewer: Preview, no editing or saving
+nirunote FILE.md --heading "Key bindings"   # open at a heading (title or anchor)
 nirunote --version
+nirunote --help
 ```
 
 | Key | Action |
@@ -109,16 +127,19 @@ nirunote --version
 | `Ctrl+Shift+C` | Copy all |
 | `Ctrl+Shift+V` | Paste as plain text |
 | `Ctrl+Shift+D` | Duplicate line |
-| `Ctrl+F` / `Ctrl+H` | Find / replace |
+| `Ctrl+F` / `Ctrl+H` | Find / replace (find only in the Preview) |
+| `F3` / `Shift+F3` | Find next / previous |
+| `Esc` | Close the find bar |
 | `Ctrl+B` / `Ctrl+I` / `Ctrl+K` | Bold / italic / link |
 | `Ctrl+Shift+X` | Toggle checkbox |
 | `Ctrl+Shift+8` / `Ctrl+Shift+7` / `Ctrl+Shift+.` | Bullet list / numbered list / quote |
 | `Ctrl+G` / `Ctrl+Shift+O` | Go to heading / outline |
+| `Alt+Left` | Back after following a link in the Preview |
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+Shift+E` | Toggle Edit / Preview |
 | `F11` | Focus mode |
 | `Ctrl+Shift+F` | Toggle floating window |
-| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Text size up / down / reset |
+| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Text size up / down / reset (also `Ctrl`+wheel, in the Preview too) |
 
 ## Configuration
 
