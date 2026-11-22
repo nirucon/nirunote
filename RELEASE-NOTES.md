@@ -1,3 +1,15 @@
+# NIRUNOTE 1.0.0
+
+NIRUNOTE rewritten in Rust: the same editor, about 12 times faster to open and a sixth of the memory.
+
+- Opens in 20 to 28 ms (0.7.1: about 290 ms) and uses 11 to 14 MB (0.7.1: 86 MB). Nothing runs while it is idle.
+- One static binary: no Python, PySide6 or Qt. `nirux extras update` installs it.
+- Every key, command-line option, setting and file of 0.7.1 works as before; `~/.config/NIRU/NIRUNOTE.conf`, recovery snapshots and the scratchpad are read unchanged.
+- The Preview renders the same HTML as 0.7.1 and now lets you select and copy text and move between links with `Tab`.
+- `F10` opens the menu, `Shift+F10` the context menu; every dialog and the file chooser work from the keyboard.
+
+Restart a running NIRUNOTE after updating.
+
 # NIRUNOTE 0.7.1
 
 - A heading opened with `--heading`, a link or the outline stays at the top of the Preview when remote images above it finish loading.

@@ -1,198 +1,158 @@
-#!/usr/bin/env bash
-set -Eeuo pipefail
+#!/bin/sh
+# NIRUNOTE installer.
+#
+#   ./install.sh             install the prebuilt release binary (downloaded
+#                            and verified against SHA256SUMS), or ./nirunote
+#                            or target/release/nirunote when present
+#   ./install.sh --build     build from this checkout with cargo first
+#   ./install.sh --prebuilt  use ./nirunote beside this script
+#   ./install.sh --yes       accepted for compatibility (nothing to confirm)
+#
+# Installs ~/.local/bin/nirunote, the desktop entry and the icon. It replaces
+# a NIRUNOTE 0.x (Python) installation: its releases and launcher go, while
+# the settings (~/.config/NIRU/NIRUNOTE.conf), the scratchpad, recovery data
+# (~/.local/state/nirunote) and the dictionaries stay. No sudo is used.
+set -eu
 
-VERSION="0.7.1"
-APP="nirunote"
-SRC_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-BASE="${HOME}/.local/share/nirunote"
-RELEASES="${BASE}/releases"
-RELEASE_DIR="${RELEASES}/${VERSION}"
-CURRENT="${BASE}/current"
-BIN_DIR="${HOME}/.local/bin"
-DESKTOP_DIR="${HOME}/.local/share/applications"
-ICON_DIR="${HOME}/.local/share/icons/hicolor/scalable/apps"
-STATE_DIR="${HOME}/.local/state/nirunote"
+PREFIX="${NIRUNOTE_PREFIX:-$HOME/.local}"
+BINDIR="$PREFIX/bin"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+APPDIR="$DATA/applications"
+ICONDIR="$DATA/icons/hicolor/scalable/apps"
+BASE="$DATA/nirunote"
+DICT_DIR="$HOME/.local/share/nirunote/dictionaries"
+MODE=auto
 
-echo "NIRUNOTE ${VERSION} installer"
-echo "-------------------------"
-
-# Without a terminal nobody can answer a package manager prompt. --yes,
-# NIRUNOTE_ASSUME_YES=1 or NIRUX_ASSUME_YES=1 (set by `nirux extras install`
-# when it runs unattended) is the consent to install missing packages.
-ASSUME_YES=0
-[ "${NIRUNOTE_ASSUME_YES:-${NIRUX_ASSUME_YES:-0}}" = 1 ] && ASSUME_YES=1
 for arg in "$@"; do
-  case "$arg" in
-    -y|--yes) ASSUME_YES=1 ;;
-    -h|--help) echo "usage: ./install.sh [--yes]"; exit 0 ;;
-    *) echo "unknown option: $arg (try --help)" >&2; exit 2 ;;
-  esac
+    case "$arg" in
+        --build) MODE=build ;;
+        --prebuilt) MODE=prebuilt ;;
+        -y | --yes) ;;
+        -h | --help)
+            printf '%s\n' "usage: ./install.sh [--build|--prebuilt] [--yes]"
+            exit 0
+            ;;
+        *) printf 'nirunote install: unknown option %s (try --help)\n' "$arg" >&2; exit 2 ;;
+    esac
 done
-PACMAN_YES=(); XBPS_YES=()
-if [ "$ASSUME_YES" = 1 ]; then PACMAN_YES=(--noconfirm); XBPS_YES=(-y); fi
 
-need_pyside() {
-  python3 - <<'PY' >/dev/null 2>&1
-import PySide6
-PY
+say() { printf '%s\n' "$*"; }
+die() { say "nirunote install: $*" >&2; exit 1; }
+need() { command -v "$1" >/dev/null 2>&1; }
+
+[ "$(id -u)" != 0 ] || die 'run ./install.sh as your desktop user, not root'
+HERE=$(cd -- "$(dirname -- "$0")" && pwd)
+cd "$HERE"
+
+VERSION="${NIRUNOTE_VERSION:-}"
+if [ -z "$VERSION" ] && [ -f Cargo.toml ]; then
+    VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+fi
+[ -n "$VERSION" ] || die 'cannot determine the NIRUNOTE version (set NIRUNOTE_VERSION)'
+say "NIRUNOTE $VERSION installer"
+
+TMP=""
+trap 'rm -rf "$TMP"' EXIT
+verify() { # FILE SUMS
+    need sha256sum || die 'sha256sum is required to verify the release binary'
+    expected=$(awk '$2 == "nirunote" || $2 == "*nirunote" { print $1; exit }' "$2")
+    [ -n "$expected" ] || die 'the checksum file does not list nirunote'
+    actual=$(sha256sum "$1" | awk '{print $1}')
+    [ "$expected" = "$actual" ] || die 'the NIRUNOTE binary failed SHA-256 verification'
+    say 'SHA-256 verification passed.'
 }
 
-if ! command -v python3 >/dev/null 2>&1 || ! need_pyside; then
-  echo "Installing required runtime dependencies..."
-  if [ ! -t 0 ] && [ "$ASSUME_YES" != 1 ]; then
-    echo "No terminal to answer the package manager; rerun in a terminal or with --yes if this fails."
-  fi
-  if command -v pacman >/dev/null 2>&1; then
-    sudo pacman -S --needed "${PACMAN_YES[@]}" python pyside6
-  elif command -v xbps-install >/dev/null 2>&1; then
-    sudo xbps-install -S "${XBPS_YES[@]}" python3 python3-pyside6 python3-pyside6-gui python3-pyside6-widgets
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets
-  else
-    echo "ERROR: Unsupported package manager. Install Python 3 and PySide6, then rerun." >&2
-    exit 1
-  fi
+if [ "$MODE" = build ]; then
+    need cargo || die 'Rust/cargo is required for --build'
+    say 'Building NIRUNOTE…'
+    cargo build --release --locked
+    BIN_SRC=target/release/nirunote
+elif [ "$MODE" = prebuilt ] || { [ -f ./nirunote ] && [ -x ./nirunote ]; }; then
+    [ -f ./nirunote ] && [ -x ./nirunote ] || die './nirunote not found beside install.sh'
+    BIN_SRC=./nirunote
+    [ ! -f SHA256SUMS ] || verify "$BIN_SRC" SHA256SUMS
+elif [ -x target/release/nirunote ]; then
+    BIN_SRC=target/release/nirunote
+else
+    [ "$(uname -m)" = x86_64 ] || die "no prebuilt release for $(uname -m); use ./install.sh --build"
+    need curl || need wget || die 'curl or wget is required to download the release binary'
+    TMP=$(mktemp -d)
+    URL="https://github.com/nirucon/nirunote/releases/download/v${VERSION}"
+    say "Downloading NIRUNOTE ${VERSION}…"
+    for f in nirunote SHA256SUMS; do
+        if need curl; then
+            curl -fsSL --retry 3 -o "$TMP/$f" "$URL/$f" || die "could not download $f"
+        else
+            wget -qO "$TMP/$f" "$URL/$f" || die "could not download $f"
+        fi
+    done
+    verify "$TMP/nirunote" "$TMP/SHA256SUMS"
+    BIN_SRC="$TMP/nirunote"
+fi
+chmod +x "$BIN_SRC" 2>/dev/null || :
+got=$("$BIN_SRC" --version 2>/dev/null | awk '{print $NF}')
+[ "$got" = "$VERSION" ] || die "the binary reports version '${got:-none}', expected $VERSION"
+"$BIN_SRC" --core-self-test >/dev/null || die 'the core self-test failed; nothing was changed'
+
+# The binary goes in beside the old one and replaces it in one rename, so a
+# running NIRUNOTE keeps working and a failed check can roll back.
+install -d -m 0755 "$BINDIR" "$APPDIR" "$ICONDIR"
+install -m 0755 "$BIN_SRC" "$BINDIR/.nirunote.new"
+if [ -e "$BINDIR/nirunote" ]; then
+    cp -p "$BINDIR/nirunote" "$BINDIR/.nirunote.previous" 2>/dev/null || :
+fi
+mv -f "$BINDIR/.nirunote.new" "$BINDIR/nirunote"
+if [ "$("$BINDIR/nirunote" --version 2>/dev/null | awk '{print $NF}')" != "$VERSION" ]; then
+    if [ -e "$BINDIR/.nirunote.previous" ]; then
+        mv -f "$BINDIR/.nirunote.previous" "$BINDIR/nirunote"
+        die 'the installed binary failed --version; the previous one was restored'
+    fi
+    die 'the installed binary failed --version'
+fi
+rm -f "$BINDIR/.nirunote.previous"
+
+sed "s|^Exec=.*|Exec=$BINDIR/nirunote %F|; s|^TryExec=.*|TryExec=$BINDIR/nirunote|" \
+    assets/nirunote.desktop > "$APPDIR/nirunote.desktop"
+chmod 0644 "$APPDIR/nirunote.desktop"
+install -m 0644 assets/nirunote.svg "$ICONDIR/nirunote.svg"
+
+# NIRUNOTE 0.x (Python): its releases and the `current` link are no longer
+# used. The dictionaries and the personal word list stay.
+if [ -d "$BASE/releases" ] || [ -L "$BASE/current" ]; then
+    rm -rf "$BASE/releases"
+    rm -f "$BASE/current"
+    say 'Removed the NIRUNOTE 0.x (Python) releases; settings and notes are kept.'
 fi
 
-need_pyside || { echo "ERROR: PySide6 import failed after dependency setup." >&2; exit 1; }
-
-# Spell checking: user-local, no sudo and no PyEnchant.
-DICT_DIR="${BASE}/dictionaries"
-mkdir -p "$DICT_DIR"
-download_file() {
-  local url="$1" dest="$2"
-  rm -f "${dest}.tmp"
-  if command -v curl >/dev/null 2>&1; then
-    curl -L --fail --silent --show-error "$url" -o "${dest}.tmp" && mv "${dest}.tmp" "$dest"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q "$url" -O "${dest}.tmp" && mv "${dest}.tmp" "$dest"
-  else return 1; fi
-}
+# Spell checking: a user-local Swedish dictionary when Hunspell is there and
+# no working one is found (no sudo). Hunspell itself is optional.
 spell_sv_ok() {
-  command -v hunspell >/dev/null 2>&1 || return 1
-  [ -s "$DICT_DIR/sv_SE.dic" ] && [ -s "$DICT_DIR/sv_SE.aff" ] || return 1
-  local bad
-  bad="$(printf 'Hej\nasdasdasd\n' | hunspell -d "$DICT_DIR/sv_SE" -l 2>/dev/null || true)"
-  [ "$bad" = "asdasdasd" ]
+    need hunspell || return 1
+    [ -s "$DICT_DIR/sv_SE.dic" ] && [ -s "$DICT_DIR/sv_SE.aff" ] || return 1
+    [ "$(printf 'Hej\nasdasdasd\n' | hunspell -d "$DICT_DIR/sv_SE" -l 2>/dev/null || :)" = asdasdasd ]
 }
-if ! spell_sv_ok; then
-  echo "Preparing user-local Swedish spell dictionary (no sudo)..."
-  download_file "https://raw.githubusercontent.com/yeager/hunspell-sv/main/sv_SE.dic" "$DICT_DIR/sv_SE.dic" || true
-  download_file "https://raw.githubusercontent.com/yeager/hunspell-sv/main/sv_SE.aff" "$DICT_DIR/sv_SE.aff" || true
-  download_file "https://raw.githubusercontent.com/yeager/hunspell-sv/main/LICENSE" "$DICT_DIR/LICENSE-hunspell-sv.txt" || true
+fetch() {
+    rm -f "$2.tmp"
+    if need curl; then curl -fsSL "$1" -o "$2.tmp" && mv "$2.tmp" "$2"
+    elif need wget; then wget -q "$1" -O "$2.tmp" && mv "$2.tmp" "$2"
+    else return 1; fi
+}
+if need hunspell && ! spell_sv_ok; then
+    mkdir -p "$DICT_DIR"
+    say 'Preparing a user-local Swedish spelling dictionary…'
+    raw=https://raw.githubusercontent.com/yeager/hunspell-sv/main
+    fetch "$raw/sv_SE.dic" "$DICT_DIR/sv_SE.dic" || :
+    fetch "$raw/sv_SE.aff" "$DICT_DIR/sv_SE.aff" || :
+    fetch "$raw/LICENSE" "$DICT_DIR/LICENSE-hunspell-sv.txt" || :
 fi
 if spell_sv_ok; then
-  echo "Swedish spell checking: OK"
-elif ! command -v hunspell >/dev/null 2>&1; then
-  echo "WARNING: hunspell is missing. Install it once with your distribution package manager to enable spelling."
-else
-  echo "WARNING: Swedish dictionary could not be prepared; NIRUNOTE will show \"Spelling: unavailable\"."
+    say 'Swedish spell checking: OK'
+elif ! need hunspell; then
+    say 'Spell checking is optional: install hunspell (and a dictionary) to enable it.'
 fi
 
-mkdir -p "$RELEASES" "$BIN_DIR" "$DESKTOP_DIR" "$ICON_DIR" "$STATE_DIR"
-rm -rf "${RELEASE_DIR}.staging"
-STAGE="${RELEASE_DIR}.staging"
-mkdir -p "$STAGE"
-cp -a "$SRC_DIR"/. "$STAGE"/
-rm -rf "$STAGE/nirunote/__pycache__"
+if need update-desktop-database; then update-desktop-database "$APPDIR" >/dev/null 2>&1 || :; fi
+if need gtk-update-icon-cache; then gtk-update-icon-cache -q -f -t "$DATA/icons/hicolor" >/dev/null 2>&1 || :; fi
 
-echo "Validating Python..."
-python3 -m py_compile "$STAGE/nirunote/app.py" "$STAGE/gui-smoke-test.py"
-
-echo "Validating NIRUNOTE core primitives..."
-if ! timeout --signal=TERM 8s python3 "$STAGE/nirunote/app.py" --core-self-test; then
-  echo "ERROR: core self-test failed. Existing installation remains active." >&2
-  rm -rf "$STAGE"; exit 1
-fi
-
-echo "Validating NIRUNOTE spell runtime..."
-if command -v hunspell >/dev/null 2>&1 && [ -s "$DICT_DIR/sv_SE.dic" ] && [ -s "$DICT_DIR/sv_SE.aff" ]; then
-  if ! timeout --signal=TERM 8s python3 "$STAGE/nirunote/app.py" --spell-self-test; then
-    echo "ERROR: NIRUNOTE runtime cannot use the verified Swedish dictionary." >&2
-    echo "Existing installation has not been activated/replaced." >&2
-    rm -rf "$STAGE"
-    exit 1
-  fi
-fi
-
-echo "Validating GUI startup in an isolated profile..."
-SMOKE_STATUS=0
-if command -v timeout >/dev/null 2>&1; then
-  QT_QPA_PLATFORM=offscreen timeout --signal=TERM --kill-after=2s 8s python3 "$STAGE/gui-smoke-test.py" || SMOKE_STATUS=$?
-else
-  QT_QPA_PLATFORM=offscreen python3 "$STAGE/gui-smoke-test.py" || SMOKE_STATUS=$?
-fi
-if [ "$SMOKE_STATUS" -ne 0 ]; then
-  rm -rf "$STAGE"
-  if [ "$SMOKE_STATUS" -eq 124 ]; then
-    echo "ERROR: GUI validation timed out after 8 seconds. Existing NIRUNOTE installation was not changed." >&2
-  else
-    echo "ERROR: GUI validation failed with exit code $SMOKE_STATUS. Existing NIRUNOTE installation was not changed." >&2
-  fi
-  exit "$SMOKE_STATUS"
-fi
-
-echo "Installing release ${VERSION}..."
-# Keep the previous same-version installation available for rollback.
-BACKUP_DIR="${RELEASE_DIR}.previous"
-if [ -e "$RELEASE_DIR" ]; then
-  # Only one same-version backup is kept: the release being replaced now.
-  rm -rf "$BACKUP_DIR"
-  mv "$RELEASE_DIR" "$BACKUP_DIR"
-fi
-if ! mv "$STAGE" "$RELEASE_DIR"; then
-  [ ! -e "$BACKUP_DIR" ] || mv "$BACKUP_DIR" "$RELEASE_DIR"
-  exit 1
-fi
-
-PREVIOUS=""
-if [ -L "$CURRENT" ]; then
-  PREVIOUS="$(readlink -f "$CURRENT" || true)"
-fi
-ln -sfn "$RELEASE_DIR" "${CURRENT}.new"
-mv -Tf "${CURRENT}.new" "$CURRENT"
-
-cat > "${BIN_DIR}/nirunote" <<'EOF'
-#!/usr/bin/env bash
-set -u
-APP_HOME="${HOME}/.local/share/nirunote/current"
-STATE="${HOME}/.local/state/nirunote"
-mkdir -p "$STATE"
-LOG="$STATE/launcher.log"
-if [ ! -f "$APP_HOME/nirunote/app.py" ]; then
-  printf '%s ERROR: active NIRUNOTE release is missing\n' "$(date '+%F %T')" >>"$LOG"
-  exit 1
-fi
-exec python3 "$APP_HOME/nirunote/app.py" "$@" 2>>"$LOG"
-EOF
-chmod +x "${BIN_DIR}/nirunote"
-
-sed   -e "s|^Exec=.*|Exec=${BIN_DIR}/nirunote %F|"   -e "s|^TryExec=.*|TryExec=${BIN_DIR}/nirunote|"   -e "s|^StartupNotify=.*|StartupNotify=false|"   "$RELEASE_DIR/nirunote.desktop" > "${DESKTOP_DIR}/nirunote.desktop"
-
-if [ -f "$RELEASE_DIR/assets/nirunote.svg" ]; then
-  cp "$RELEASE_DIR/assets/nirunote.svg" "${ICON_DIR}/nirunote.svg"
-fi
-
-command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
-command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t "${HOME}/.local/share/icons/hicolor" >/dev/null 2>&1 || true
-
-# Final non-GUI checks through the actual installed entrypoint.
-if ! "${BIN_DIR}/nirunote" --version >/dev/null 2>&1; then
-  echo "ERROR: installed entrypoint failed." >&2
-  if [ -n "$PREVIOUS" ] && [ -d "$PREVIOUS" ]; then
-    ln -sfn "$PREVIOUS" "${CURRENT}.rollback"
-    mv -Tf "${CURRENT}.rollback" "$CURRENT"
-    echo "Rolled back to: $PREVIOUS"
-  fi
-  if [ -d "${RELEASE_DIR}.previous" ]; then
-    rm -rf "$RELEASE_DIR"
-    mv "${RELEASE_DIR}.previous" "$RELEASE_DIR"
-  fi
-  exit 1
-fi
-
-echo
-echo "NIRUNOTE ${VERSION} installed successfully."
-echo "Launch NIRUNOTE from your application launcher."
-echo "Log: ${STATE_DIR}/launcher.log"
+say "Installed NIRUNOTE $VERSION at $BINDIR/nirunote"
+say 'A NIRUNOTE window that is already open keeps its old version until it is closed.'

@@ -2,7 +2,7 @@
 Type=Application
 Name=NIRUNOTE
 GenericName=Text Editor
-Comment=Minimal, suckless writing for Linux
+Comment=Minimal, keyboard-oriented Markdown editor with a styled preview
 Exec=nirunote %F
 TryExec=nirunote
 Icon=nirunote

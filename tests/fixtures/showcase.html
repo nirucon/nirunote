@@ -1,0 +1,94 @@
+<h1><a name="nirunote-markdown-showcase"></a>NIRUNOTE Markdown showcase</h1>
+<p>This file exercises every Markdown feature the Preview renders. It doubles as a regression fixture, so keep it <strong>complete</strong> rather than pretty.</p>
+<h2><a name="emphasis-and-inline-text"></a>Emphasis and inline text</h2>
+<p>Plain, <em>italic</em>, <em>also italic</em>, <strong>bold</strong>, <strong>also bold</strong>, <strong><em>bold italic</em></strong>, <s>strikethrough</s>, <code>inline code</code>, and <code>code with a ` backtick</code>. Snake_case_words and 2 * 3 * 4 stay as they are. <kbd>Ctrl</kbd>+<kbd>S</kbd> saves, H<sub>2</sub>O, E = mc<sup>2</sup>, <mark>marked</mark> and <small>small print</small>.</p>
+<p>Escapes: *not italic*, # not a heading, [not a link], 1. not a list, \ backslash. Entities: © &amp; &lt;tag&gt; © ☃  and &amp;unknown; stays.</p>
+<p>Hard break with two spaces<br>next line, and with a backslash<br>third line. A soft line break joins.</p>
+<h2><a name="links-and-images"></a>Links and images</h2>
+<p>An <a href="https://example.com" title="Example title">inline link</a>, a <a href="https://example.com/ref">reference link</a>, a <a href="https://example.com/collapsed">collapsed reference</a>, a <a href="https://example.com/shortcut" title="Shortcut">shortcut</a> link, an autolink <a href="https://nirux.org">https://nirux.org</a>, a bare URL <a href="https://github.com/nirucon/nirunote">https://github.com/nirucon/nirunote</a>, <a href="http://www.example.org">www.example.org</a> and <a href="mailto:mail@example.com">mail@example.com</a>. Jump to <a href="#tables">the tables section</a> or open <a href="other.md#some-heading">another chapter</a>. Unsafe: javascript, file.</p>
+<p>Local image (scaled down to the page width):</p>
+<p><img src="../../docs/screenshots/main.png" alt="NIRUNOTE screenshot"></p>
+<p>Local SVG (shown when QtSvg is installed, else its alt text): <img src="../../assets/nirunote.svg" alt="NIRUNOTE icon"></p>
+<p>Remote image: <img src="https://raw.githubusercontent.com/nirucon/nirunote/main/docs/screenshots/main.png" alt="remote screenshot"></p>
+<p>Missing image: <img src="does-not-exist.png" alt="missing picture"></p>
+<h2><a name="lists"></a>Lists</h2>
+<ul style="list-style-type:disc"><li><p class="end">First bullet</p></li><li><p>Second bullet with <code>code</code></p>
+<ul style="list-style-type:circle"><li>Nested bullet
+<ul style="list-style-type:square"><li>Deeper bullet</li></ul></li></ul></li><li class="last"><p class="end">Third bullet</p></li></ul>
+<ol><li>One</li><li>Two
+<ol><li>Two point one</li><li>Two point two</li></ol></li><li class="last">Three</li></ol>
+<p>A paragraph ends the list, so the next one can start at seven:</p>
+<ol start="7"><li><p class="end">Starts at seven</p></li><li class="last"><p class="end">Eight</p></li></ol>
+<ul style="list-style-type:disc"><li><p class="end">Loose list item one</p></li><li class="last"><p>Loose list item two with a second paragraph</p>
+<p class="end">The second paragraph belongs to the item.</p></li></ul>
+<h3><a name="task-list"></a>Task list</h3>
+<ul style="list-style-type:none"><li><span class="done">☑</span>&nbsp; Write the renderer</li><li><span class="todo">☐</span>&nbsp; Take screenshots</li><li class="last"><span class="todo">☐</span>&nbsp; Release</li></ul>
+<h2><a name="block-quotes"></a>Block quotes</h2>
+<table class="quote" width="100%" cellspacing="0" cellpadding="0"><tr><td class="qbar"><p>A quote with <strong>bold</strong> text.</p>
+<table class="quote" width="100%" cellspacing="0" cellpadding="0"><tr><td class="qbar"><p>A nested quote.</p>
+<table class="quote" width="100%" cellspacing="0" cellpadding="0"><tr><td class="qbar"><p class="end">And one more level.</p></td></tr></table></td></tr></table>
+<p class="end">Back to the first level.</p></td></tr></table>
+<h2><a name="alerts"></a>Alerts</h2>
+<table class="alert" width="100%" cellspacing="0" cellpadding="0"><tr><td class="a-note"><p class="at-note"><b>ℹ&nbsp; Note</b></p><p class="end">Useful information that users should know.</p></td></tr></table>
+<table class="alert" width="100%" cellspacing="0" cellpadding="0"><tr><td class="a-tip"><p class="at-tip"><b>✦&nbsp; Tip</b></p><p class="end">Helpful advice for doing things better.</p></td></tr></table>
+<table class="alert" width="100%" cellspacing="0" cellpadding="0"><tr><td class="a-important"><p class="at-important"><b>❢&nbsp; Important</b></p><p class="end">Key information users need.</p></td></tr></table>
+<table class="alert" width="100%" cellspacing="0" cellpadding="0"><tr><td class="a-warning"><p class="at-warning"><b>⚠&nbsp; Warning</b></p><p class="end">Urgent info that needs immediate attention.</p></td></tr></table>
+<table class="alert" width="100%" cellspacing="0" cellpadding="0"><tr><td class="a-caution"><p class="at-caution"><b>⊘&nbsp; Caution</b></p><p class="end">Advises about risks or negative outcomes.</p></td></tr></table>
+<h2><a name="code"></a>Code</h2>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><p class="lang">python</p><pre><span class="tp">@decorator</span>
+<span class="tk">def</span> <span class="tf">greet</span>(name: <span class="tb">str</span> = <span class="ts">"world"</span>) -&gt; <span class="tb">None</span>:
+    <span class="ts">"""Say hello."""</span>
+    <span class="tc"># comment</span>
+    <span class="tk">for</span> i <span class="tk">in</span> <span class="tb">range</span>(<span class="tn">3</span>):
+        <span class="tb">print</span>(<span class="ts">f"Hello {name} {i}"</span>, <span class="tn">0x1F</span>, <span class="tn">3.14</span>)</pre></td></tr></table>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><p class="lang">sh</p><pre><span class="tc"># Install and run</span>
+<span class="tf">nirux</span> extras install nirunote &amp;&amp; <span class="tf">nirunote</span> --read-only --heading <span class="ts">"Tables"</span> ~/notes.md
+<span class="tk">export</span> EDITOR=nirunote; <span class="tf">echo</span> <span class="ts">"$HOME/${XDG_CONFIG_HOME:-.config}"</span> | <span class="tf">grep</span> -q config</pre></td></tr></table>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><p class="lang">toml</p><pre><span class="tk">[general]</span>
+<span class="tf">theme</span> = <span class="ts">"Follow NIRUX"</span> <span class="tc"># comment</span>
+<span class="tf">font_size</span> = <span class="tn">17</span>
+<span class="tf">enabled</span> = <span class="tk">true</span></pre></td></tr></table>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><p class="lang">rust</p><pre><span class="tk">fn</span> <span class="tf">main</span>() {
+    <span class="tk">let</span> v: <span class="tb">Vec</span>&lt;<span class="tb">u32</span>&gt; = (<span class="tn">1</span>..=<span class="tn">3</span>).<span class="tf">collect</span>();
+    <span class="tf">println!</span>(<span class="ts">"{:?} {}"</span>, v, <span class="ts">'x'</span>);
+}</pre></td></tr></table>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><p class="lang">json</p><pre>{<span class="tf">"name"</span>: <span class="ts">"nirunote"</span>, <span class="tf">"version"</span>: <span class="ts">"0.7.0"</span>, <span class="tf">"light"</span>: <span class="tk">true</span>, <span class="tf">"deps"</span>: <span class="tk">null</span>}</pre></td></tr></table>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><p class="lang">diff</p><pre><span class="tk">--- a/file</span>
+<span class="tk">+++ b/file</span>
+<span class="th">@@ -1,2 +1,2 @@</span>
+<span class="td">-old line</span>
+<span class="ta">+new line</span>
+ context</pre></td></tr></table>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><pre>A fence without a language stays plain.</pre></td></tr></table>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><pre>Indented code block
+with two lines.</pre></td></tr></table>
+<p>A long code line must wrap rather than break the layout:</p>
+<table class="code" width="100%" cellspacing="0" cellpadding="0"><tr><td><p class="lang">text</p><pre>this-is-a-very-long-line-without-spaces-that-goes-on-and-on-and-on-and-on-and-on-and-on-and-on-and-on-and-on-and-on-and-on-and-on</pre></td></tr></table>
+<h2><a name="tables"></a>Tables</h2>
+<table class="grid" cellspacing="0" cellpadding="0"><tr><th align="left" valign="top">Left</th><th align="center" valign="top">Center</th><th align="right" valign="top">Right</th></tr><tr><td align="left" valign="top">a</td><td align="center" valign="top">b</td><td align="right" valign="top">1</td></tr><tr class="odd"><td align="left" valign="top"><code>code</code></td><td align="center" valign="top"><strong>bold</strong></td><td align="right" valign="top">22</td></tr><tr><td align="left" valign="top">escaped | pipe</td><td align="center" valign="top"><a href="https://example.com">link</a></td><td align="right" valign="top">333</td></tr></table>
+<p>A wide table:</p>
+<table class="grid" cellspacing="0" cellpadding="0"><tr><th align="left" valign="top">Command</th><th align="left" valign="top">What it does</th><th align="left" valign="top">Default</th><th align="left" valign="top">Notes</th><th align="left" valign="top">More notes</th><th align="left" valign="top">Even more</th></tr><tr><td align="left" valign="top"><code>nirunote --read-only --heading "Some heading" file.md</code></td><td align="left" valign="top">Opens the file read-only, scrolled to the heading</td><td align="left" valign="top">off</td><td align="left" valign="top">A long cell that has to wrap across several lines to fit</td><td align="left" valign="top">x</td><td align="left" valign="top">y</td></tr><tr class="odd"><td align="left" valign="top"><code>averyveryveryverylongunbreakabletokenthatdoesnotwrapanywhereatall</code></td><td align="left" valign="top">Long tokens</td><td align="left" valign="top">-</td><td align="left" valign="top">-</td><td align="left" valign="top">-</td><td align="left" valign="top">-</td></tr></table>
+<h2><a name="rules-and-breaks"></a>Rules and breaks</h2>
+<p>Above a rule.</p>
+<hr>
+<hr>
+<p>Below the rules.</p>
+<h1><a name="setext-heading-one"></a>Setext heading one</h1>
+<h2><a name="setext-heading-two"></a>Setext heading two</h2>
+<h2><a name="footnotes"></a>Footnotes</h2>
+<p>Here is a footnote reference<a name="fnref-1"></a><sup><a href="#fn-1">1</a></sup> and another one<a name="fnref-long"></a><sup><a href="#fn-long">2</a></sup>.</p>
+<h2><a name="long-lines"></a>Long lines</h2>
+<p>A very long word: Pneumonoultramicroscopicsilicovolcanoconiosis-and-then-some-more-text-without-spaces-that-keeps-going-and-going-until-it-must-wrap.</p>
+<p>A long URL: <a href="https://example.com/a/very/long/path/that/keeps/going/and/going/and/going/and/going/and/going/forever?with=query&amp;and=more">https://example.com/a/very/long/path/that/keeps/going/and/going/and/going/and/going/and/going/forever?with=query&amp;and=more</a></p>
+<h2><a name="headings-with-the-same-name"></a>Headings with the same name</h2>
+<h3><a name="details"></a>Details</h3>
+<h3><a name="details-1"></a>Details</h3>
+<h4><a name="level-four"></a>Level four</h4>
+<h5><a name="level-five"></a>Level five</h5>
+<h6><a name="level-six"></a>Level six</h6>
+<h2><a name="html-that-is-not-passed-through"></a>HTML that is not passed through</h2>
+<p>&lt;script&gt;alert("no")&lt;/script&gt;</p>
+<p>Summary text</p>
+<p>Content inside details.</p>
+<p>The end.</p>
+<hr><ol class="footnotes"><li><a name="fn-1"></a>The first footnote. <a href="#fnref-1">↩</a></li><li><a name="fn-long"></a>A longer footnote with <code>code</code> and a <a href="https://example.com">link</a>. <a href="#fnref-long">↩</a></li></ol>

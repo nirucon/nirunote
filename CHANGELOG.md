@@ -1,3 +1,42 @@
+## 1.0.0 (2026-11-22): Rewritten in Rust, 12 times faster to open
+
+NIRUNOTE is now one small static Rust program that draws its own X11 window
+(x11rb and a software canvas, like NIRUFM and NIRUTERM). Python, PySide6 and
+Qt are no longer needed.
+
+- First frame after 20 to 28 ms instead of about 290 ms; 11 to 14 MB of
+  memory instead of 86 MB; no timers while idle (the caret no longer blinks).
+- Every feature, key and command-line option of 0.7.1 is kept: editing with
+  Markdown highlighting, list and quote continuation, find and replace, the
+  outline, Go to heading, Quick Open, the command palette, recent files,
+  focus mode, floating, writing widths, themes with Follow NIRUX, spelling
+  with Hunspell, crash recovery with Restore, Discard and Compare, atomic
+  saves that keep line endings and BOM, the external-change prompt, the
+  read-only viewer with `--heading`, the scratchpad and file drops.
+- The Markdown renderer is a port of 0.7's: on the NIRUX manual and the
+  suite's READMEs it produces exactly the same HTML. The Preview is laid out
+  by NIRUNOTE itself (no Qt text engine): text can be selected, copied and
+  searched, `Tab` moves between links and `Enter` follows one.
+- Same files: `~/.config/NIRU/NIRUNOTE.conf` (read and written in Qt's
+  format, merged like QSettings), recovery snapshots, the scratchpad note
+  and the dictionaries.
+- Images in the Preview: PNG, JPEG (with EXIF orientation), GIF, WebP and
+  SVG; remote images are fetched with `curl` (or `wget`), still at most
+  8 MB and 10 s.
+- Dialogs, menus and the Open/Save chooser are drawn inside the window and
+  work from the keyboard; `F10` opens the menu and `Shift+F10` the context
+  menu. The find bar's controls are reachable with `Tab`.
+- Fixed: toggling a checkbox (`Ctrl+Shift+X`) on any line but the first
+  joined that line to the one above.
+- Fixed: `Enter` on a task item (`- [x] done`) continues with a new empty
+  task (`- [ ] `) as intended, not a plain bullet.
+- The installer downloads the prebuilt static binary of the release and
+  verifies it against `SHA256SUMS` (`--build` builds it locally). It removes
+  a 0.x installation's Python releases and keeps settings, notes, recovery
+  data and dictionaries. `./uninstall.sh --purge` also removes those.
+- Not carried over: Qt's accessibility names (no screen-reader support in
+  the custom-drawn window).
+
 ## 0.7.1 (2026-11-10): Headings stay in view while images load
 
 - Opening at a heading (`--heading`, a link or the outline) keeps that heading
